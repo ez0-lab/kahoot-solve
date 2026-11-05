@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
+<title>Camera check</title>
+<style>
+:root{--bg:#f7f6f3;--ink:#17171c;--soft:#5c5c66;--quiet:#e9e7e0;--button:#17171c;--button-ink:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#101015;--ink:#f3f3f5;--soft:#a2a2ad;--quiet:#23232b;--button:#fff;--button-ink:#101015}}
+*{box-sizing:border-box}
+html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:560px;margin:0 auto;padding:calc(env(safe-area-inset-top,0px) + 24px) 16px calc(env(safe-area-inset-bottom,0px) + 40px)}
+h1{margin:0 0 6px;font-size:30px;line-height:1.1;letter-spacing:-.02em}
+h2{margin:32px 0 4px;font-size:20px;line-height:1.25}
+p{margin:6px 0 0;color:var(--soft)}
+button{display:block;width:100%;min-height:50px;margin-top:12px;padding:0 18px;border:0;border-radius:13px;background:var(--quiet);color:var(--ink);font:600 17px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+button:disabled{opacity:.45}
+.main{background:var(--button);color:var(--button-ink)}
+video{display:block;width:100%;margin-top:12px;border-radius:10px;background:#000;aspect-ratio:16/9;object-fit:cover}
+pre{margin:12px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace}
+.row{display:grid;grid-template-columns:64px 1fr 64px;gap:8px;align-items:center}
+.row button{margin-top:12px}
+output{display:block;margin-top:12px;text-align:center;font-weight:600}
+[hidden]{display:none}
+</style>
+</head>
+<body>
+<main>
+  <h1>Camera check</h1>
+  <p>Lists what your iPhone’s back cameras can do, so the helper only offers 0.5× if it is real. Sit where you sit in a game, point at the screen, then tap Run check. It takes about a minute. Nothing leaves this phone unless you share the file.</p>
+  <button class="main" id="run" type="button">Run check</button>
+  <video playsinline muted autoplay></video>
+  <pre id="out"></pre>
+
+  <section id="session" hidden>
+    <h2>Photo session</h2>
+    <p>Start the numbered slides on your computer. Tap Shoot once per slide, then wait for the button to come back. Check that the number here matches the slide, and fix it with − or + if you miss one.</p>
+    <div class="row">
+      <button id="back" type="button" aria-label="Previous slide">−</button>
+      <output id="slide">Slide 1</output>
+      <button id="skip" type="button" aria-label="Next slide">+</button>
+    </div>
+    <button class="main" id="shoot" type="button">Shoot</button>
+  </section>
+
+  <button id="save" type="button" hidden>Save results</button>
+</main>
+<script>var module = { exports: {} }; // helper.js then only exports its pure logic and does not start the overlay.</script>
+<script src="helper.js"></script>
+<script>
+var helper = module.exports;
+var preview = document.querySelector('video');
+var out = document.getElementById('out');
+var sleep = function (ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); };
+var report = { at: new Date().toISOString(), ua: navigator.userAgent, screen: [screen.width, screen.height, devicePixelRatio], lenses: [], shots: [] };
+var stream = null;
+var openId = null;
+var sessionLenses = [];
+var slide = 1;
+
+function say(text) { out.textContent += text + '\n'; }
+
+async function openCamera(video) {
+  if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+  stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: video });
+  preview.srcObject = stream;
+  await preview.play().catch(function () {});
+  for (var i = 0; i < 40 && !preview.videoWidth; i++) await sleep(50);
+  return stream.getVideoTracks()[0];
+}
+
+function facts(track) {
+  return { label: track.label, settings: track.getSettings ? track.getSettings() : null, capabilities: track.getCapabilities ? track.getCapabilities() : null, video: [preview.videoWidth, preview.videoHeight] };
+}
+
+// The whole frame, to compare what each lens and mode can see.
+function wholeFrame() {
+  var scale = Math.min(1, 1920 / Math.max(preview.videoWidth, preview.videoHeight));
+  var canvas = document.createElement('canvas');
+  canvas.width = Math.round(preview.videoWidth * scale);
+  canvas.height = Math.round(preview.videoHeight * scale);
+  canvas.getContext('2d').drawImage(preview, 0, 0, canvas.width, canvas.height);
+  return { w: canvas.width, h: canvas.height, data: canvas.toDataURL('image/jpeg', 0.8) };
+}
+
+// What the helper would send: its centre crop at 1280 wide and JPEG 0.8, the sharpest of 3 frames 70 ms apart.
+async function helperPhoto() {
+  var crop = helper.cropRect(preview.videoWidth, preview.videoHeight, 1);
+  var scale = Math.min(1, 1280 / crop.w);
+  var w = Math.round(crop.w * scale), h = Math.round(crop.h * scale);
+  var probe = document.createElement('canvas');
+  probe.width = 320;
+  probe.height = 180;
+  var probeContext = probe.getContext('2d', { willReadFrequently: true });
+  var best = null, bestScore = -1;
+  for (var i = 0; i < 3; i++) {
+    if (i) await sleep(70);
+    var canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext('2d').drawImage(preview, crop.x, crop.y, crop.w, crop.h, 0, 0, w, h);
+    probeContext.drawImage(canvas, 0, 0, 320, 180);
+    var pixels = probeContext.getImageData(0, 0, 320, 180).data;
+    var gray = new Float32Array(320 * 180);
+    for (var p = 0; p < gray.length; p++) gray[p] = 0.3 * pixels[p * 4] + 0.59 * pixels[p * 4 + 1] + 0.11 * pixels[p * 4 + 2];
+    var score = helper.sharpness(gray, 320, 180);
+    if (score > bestScore) { best = canvas; bestScore = score; }
+  }
+  return { w: w, h: h, data: best.toDataURL('image/jpeg', 0.8) };
+}
+
+async function check() {
+  var run = document.getElementById('run');
+  run.disabled = true;
+  out.textContent = '';
+  try {
+    report.supported = navigator.mediaDevices.getSupportedConstraints ? navigator.mediaDevices.getSupportedConstraints() : null;
+    report.devicesBeforePermission = (await navigator.mediaDevices.enumerateDevices()).map(function (d) { return { kind: d.kind, label: d.label }; });
+    // The same request the helper makes, so this shows which lens a game really uses.
+    var track = await openCamera({ facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } });
+    await sleep(900);
+    report.helperDefault = Object.assign(facts(track), { photo: wholeFrame() });
+    say('Helper default: ' + track.label + ' ' + preview.videoWidth + '×' + preview.videoHeight);
+    var devices = await navigator.mediaDevices.enumerateDevices();
+    report.devices = devices.map(function (d) { return { kind: d.kind, label: d.label, id: d.deviceId }; });
+    var cameras = devices.filter(function (d) { return d.kind === 'videoinput' && !/front/i.test(d.label); });
+    for (var c = 0; c < cameras.length; c++) {
+      var lens = { label: cameras[c].label, id: cameras[c].deviceId, modes: [] };
+      report.lenses.push(lens);
+      for (var m = 0; m < 2; m++) {
+        var name = ['16:9', '4:3'][m];
+        try {
+          track = await openCamera({ deviceId: { exact: lens.id }, width: { ideal: 1920 }, height: { ideal: [1080, 1440][m] } });
+          await sleep(900);
+          var mode = Object.assign({ asked: name }, facts(track), { photo: wholeFrame() });
+          var zoom = mode.capabilities && mode.capabilities.zoom;
+          say(lens.label + ' ' + name + ': ' + preview.videoWidth + '×' + preview.videoHeight + ', zoom ' + (zoom ? zoom.min + ' to ' + zoom.max : 'none'));
+          if (zoom) {
+            await track.applyConstraints({ advanced: [{ zoom: zoom.min }] });
+            await sleep(700);
+            mode.atMinZoom = { settings: track.getSettings(), photo: wholeFrame() };
+          }
+          lens.modes.push(mode);
+        } catch (e) {
+          lens.modes.push({ asked: name, error: e.name + ': ' + e.message });
+          say(lens.label + ' ' + name + ': ' + e.name);
+        }
+      }
+    }
+    var picked = report.lenses.filter(function (l) { return l.label === report.helperDefault.label || /ultra/i.test(l.label); });
+    sessionLenses = picked.length ? picked : report.lenses.slice(0, 1);
+    say('Session lenses: ' + sessionLenses.map(function (l) { return l.label; }).join(', '));
+    document.getElementById('session').hidden = false;
+    document.getElementById('save').hidden = false;
+  } catch (e) {
+    report.error = e.name + ': ' + e.message;
+    say('Failed: ' + report.error);
+    document.getElementById('save').hidden = false;
+  }
+  run.disabled = false;
+}
+
+function showSlide() { document.getElementById('slide').textContent = 'Slide ' + slide; }
+
+async function shoot() {
+  var button = document.getElementById('shoot');
+  button.disabled = true;
+  try {
+    for (var i = 0; i < sessionLenses.length; i++) {
+      var lens = sessionLenses[i];
+      if (openId !== lens.id) {
+        // 4:3 because in portrait it keeps more width than 16:9. A crop of these photos can still stand in for 16:9.
+        await openCamera({ deviceId: { exact: lens.id }, width: { ideal: 1920 }, height: { ideal: 1440 } });
+        openId = lens.id;
+        await sleep(600);
+      }
+      report.shots.push(Object.assign({ slide: slide, lens: lens.label, video: [preview.videoWidth, preview.videoHeight] }, await helperPhoto()));
+    }
+    slide += 1;
+    showSlide();
+  } catch (e) {
+    say('Shot failed on slide ' + slide + ': ' + e.name);
+  }
+  button.disabled = false;
+}
+
+async function save() {
+  var stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  var file = new File([JSON.stringify(report)], 'camera-check-' + stamp + '.json', { type: 'application/json' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file] });
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+    }
+  }
+  var link = document.createElement('a');
+  link.href = URL.createObjectURL(file);
+  link.download = file.name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+document.getElementById('run').addEventListener('click', check);
+document.getElementById('shoot').addEventListener('click', shoot);
+document.getElementById('save').addEventListener('click', save);
+document.getElementById('back').addEventListener('click', function () { slide = Math.max(1, slide - 1); showSlide(); });
+document.getElementById('skip').addEventListener('click', function () { slide += 1; showSlide(); });
+</script>
+</body>
+</html>
