@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Practice slide</title>
+<style>
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{position:relative;overflow:hidden;background:#3b1f6b;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-weight:700}
+#question{position:absolute;top:4vh;left:50%;transform:translateX(-50%);width:max-content;max-width:72vw;padding:1.6vh 2.4vw;border-radius:.5vh;background:#fff;color:#333;font-size:4.6vh;line-height:1.15;text-align:center}
+#timer,#count{position:absolute;top:34vh;display:grid;place-items:center;width:13vh;height:13vh;border-radius:50%;background:#46178f;font-size:6vh}
+#timer{left:2vw}
+#count{right:2vw}
+#tiles{position:absolute;left:1vw;right:1vw;bottom:1.5vh;display:grid;grid-template-columns:1fr 1fr;gap:.8vh}
+.tile{display:flex;align-items:center;gap:1.8vh;min-height:14.5vh;padding:1vh 2.2vh;border-radius:.4vh;font-size:3.5vh;line-height:1.15}
+.tile svg{flex:none;width:5vh;height:5vh;fill:#fff}
+.red{background:#e21b3c}.blue{background:#1368ce}.yellow{background:#d89e00}.green{background:#26890c}
+#controls{position:absolute;top:1vh;right:1vh;display:flex;gap:.8vh}
+button{min-height:44px;padding:0 14px;border:0;border-radius:10px;background:rgba(255,255,255,.14);color:#fff;font-family:inherit;font-size:15px;font-weight:600;touch-action:manipulation;cursor:pointer}
+button:active{background:rgba(255,255,255,.26)}
+.solved .tile:not(.right){opacity:.25}
+</style>
+</head>
+<body>
+<div id="question"></div>
+<div id="timer">20</div>
+<div id="count">0</div>
+<div id="tiles"></div>
+<div id="controls"><button id="reveal" type="button">Show answer</button><button id="next" type="button">Next</button></div>
+<script>
+// With #q=<JSON> it shows one given slide, which tools/compare-models.mjs renders. Otherwise it cycles the samples.
+var SHAPES = {
+  red: '<path d="M27,24.56 L5,24.56 L16,7 Z"/>',
+  blue: '<path d="M4,16 L16,4 L28,16 L16,28 Z"/>',
+  yellow: '<circle cx="16" cy="16" r="11"/>',
+  green: '<path d="M7,7 L25,7 L25,25 L7,25 Z"/>'
+};
+var SAMPLES = [
+  { q: 'What is the capital of Australia?', a: ['Sydney', 'Canberra', 'Melbourne', 'Perth'], correct: 1 },
+  { q: 'Qual é o maior planeta do sistema solar?', a: ['Saturno', 'Marte', 'Júpiter', 'Neptuno'], correct: 2 },
+  { q: 'Water boils at 100 °C at sea level.', a: ['True', 'False'], correct: 0, trueFalse: true },
+  { q: 'Quem escreveu "Os Lusíadas"?', a: ['Fernando Pessoa', 'Luís de Camões', 'Eça de Queirós', 'José Saramago'], correct: 1 },
+  { q: 'Which element has the chemical symbol Fe?', a: ['Fluorine', 'Lead', 'Tin', 'Iron'], correct: 3 },
+  { q: 'Em que ano foi o 25 de Abril em Portugal?', a: ['1968', '1974', '1980', '1986'], correct: 1 },
+  { q: 'A baleia-azul é um peixe.', a: ['Verdadeiro', 'Falso'], correct: 1, trueFalse: true },
+  { q: 'Which country gifted the Statue of Liberty to the United States?', a: ['France', 'England', 'Spain', 'Italy'], correct: 0 }
+];
+var COLOURS = ['red', 'blue', 'yellow', 'green'];
+
+function show(item) {
+  document.body.classList.remove('solved');
+  document.getElementById('question').textContent = item.q;
+  var tiles = document.getElementById('tiles');
+  tiles.textContent = '';
+  // True or false puts blue on the left and red on the right, the same as a real host display.
+  var colours = item.trueFalse ? ['blue', 'red'] : COLOURS;
+  item.a.forEach(function (text, i) {
+    var tile = document.createElement('div');
+    tile.className = 'tile ' + colours[i] + (i === item.correct ? ' right' : '');
+    tile.innerHTML = '<svg viewBox="0 0 32 32" aria-hidden="true">' + SHAPES[colours[i]] + '</svg>';
+    var label = document.createElement('span');
+    label.textContent = text;
+    tile.appendChild(label);
+    tiles.appendChild(tile);
+  });
+}
+
+var given = /^#q=(.+)$/.exec(location.hash);
+if (given) {
+  show(JSON.parse(decodeURIComponent(given[1])));
+  document.getElementById('controls').style.display = 'none'; // The flex rule on #controls beats the hidden attribute.
+} else {
+  var at = 0;
+  show(SAMPLES[at]);
+  document.getElementById('next').addEventListener('click', function () {
+    at = (at + 1) % SAMPLES.length;
+    show(SAMPLES[at]);
+  });
+  document.getElementById('reveal').addEventListener('click', function () {
+    document.body.classList.add('solved');
+  });
+}
+</script>
+</body>
+</html>

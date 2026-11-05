@@ -1,0 +1,6 @@
+# Allowlist: only the public site can reach the repository.
+# capture/ holds session tokens and desktop video, and tools/ reads it.
+*
+!/.gitignore
+!/docs/
+!/docs/**

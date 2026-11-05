@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f7f6f3">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#101015">
+<title>Quiz Helper</title>
+<style>
+:root{--bg:#f7f6f3;--ink:#17171c;--soft:#5c5c66;--line:#dfddd6;--button:#17171c;--button-ink:#fff;--quiet:#e9e7e0;--pressed:#3a3a44}
+@media (prefers-color-scheme:dark){:root{--bg:#101015;--ink:#f3f3f5;--soft:#a2a2ad;--line:#2b2b34;--button:#fff;--button-ink:#101015;--quiet:#23232b;--pressed:#d8d8de}}
+*{box-sizing:border-box}
+html{-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:560px;margin:0 auto;padding:calc(env(safe-area-inset-top,0px) + 28px) 20px calc(env(safe-area-inset-bottom,0px) + 40px)}
+.mark{display:grid;grid-template-columns:repeat(2,20px);gap:3px;width:max-content}
+.mark i{display:block;height:20px;border-radius:4px}
+h1{margin:18px 0 6px;font-size:34px;line-height:1.1;letter-spacing:-.02em}
+.lead{margin:0 0 20px;color:var(--soft)}
+h2{margin:40px 0 4px;padding-top:18px;border-top:1px solid var(--line);font-size:21px;line-height:1.25}
+h2+p{margin-top:4px;color:var(--soft)}
+ol{counter-reset:step;margin:16px 0 0;padding:0;list-style:none}
+ol>li{counter-increment:step;position:relative;padding:0 0 22px 42px}
+ol>li::before{content:counter(step);position:absolute;left:0;top:0;width:28px;height:28px;border-radius:50%;background:var(--quiet);font-size:15px;font-weight:600;line-height:28px;text-align:center}
+ol b{display:block;line-height:28px}
+ul{margin:12px 0 0;padding-left:20px}
+ul li{margin-bottom:8px}
+p{margin:6px 0 0}
+.btn{display:flex;align-items:center;justify-content:center;width:100%;min-height:50px;margin-top:12px;padding:0 18px;border:0;border-radius:13px;background:var(--quiet);color:var(--ink);font-family:inherit;font-size:17px;font-weight:600;line-height:1.2;text-align:center;text-decoration:none;cursor:pointer;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;transition:transform 100ms ease-out,background-color 100ms ease-out}
+.btn:active{transform:scale(.97)}
+.btn.main{background:var(--button);color:var(--button-ink)}
+.btn.main:active{background:var(--pressed)}
+.btn:focus-visible{outline:2px solid #3f8cff;outline-offset:2px}
+.small{font-size:14px;color:var(--soft)}
+code{display:block;margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--quiet);font:13px/1.45 ui-monospace,Menlo,Consolas,monospace;overflow-wrap:anywhere;user-select:all;-webkit-user-select:all}
+.key{display:inline-block;width:1.05em;height:1.05em;margin-right:.3em;border-radius:3px;vertical-align:-.15em}
+@media (hover:hover) and (pointer:fine){.btn:hover{filter:brightness(.94)}.btn.main:hover{filter:brightness(1.2)}}
+@media (prefers-color-scheme:dark) and (hover:hover) and (pointer:fine){.btn.main:hover{filter:brightness(.9)}.btn:hover{filter:brightness(1.25)}}
+@media (prefers-reduced-motion:reduce){.btn{transition:none}.btn:active{transform:none}}
+</style>
+</head>
+<body>
+<main>
+  <div class="mark" aria-hidden="true"><i style="background:#e21b3c"></i><i style="background:#1368ce"></i><i style="background:#d89e00"></i><i style="background:#26890c"></i></div>
+  <h1>Quiz Helper</h1>
+  <p class="lead">Your phone reads the host’s screen and marks the likely answer. You still tap it yourself.</p>
+  <a class="btn main" href="https://kahoot.it/">Open the game page</a>
+  <p class="small">Already set up? That button is all you need.</p>
+
+  <h2>Set up once</h2>
+  <p>About five minutes. Use Safari on your iPhone. Nothing here costs money.</p>
+  <ol>
+    <li><b>Install Userscripts</b>A free app that adds the helper to the real game page. It needs iOS 15.1 or newer. Open it once after installing.
+      <a class="btn" href="https://apps.apple.com/app/id1463298887">Get the app</a></li>
+    <li><b>Turn it on in Safari</b>Tap the <b style="display:inline">aA</b> or puzzle icon in the address bar, then Manage Extensions, then turn on Userscripts. Tap Userscripts in that menu and choose Always Allow on Every Website.</li>
+    <li><b>Add the helper</b>Open the script, tap the same icon, tap Userscripts and follow the install prompt.
+      <a class="btn" href="quiz-helper.user.js">Open the script</a></li>
+    <li><b>Get a free AI key</b>Create a Groq API key and copy it. A Google key is an optional backup, so read What leaves your phone below before you make one. Neither site should ask for a card. If one does, stop and leave it, because this project spends no money.
+      <a class="btn" href="https://console.groq.com/keys">Get a Groq key</a>
+      <a class="btn" href="https://aistudio.google.com/apikey">Google AI Studio, optional</a></li>
+    <li><b>Paste the key</b>Open the game page. The settings open by themselves the first time. Paste the key, tap Done and allow the camera.
+      <a class="btn" href="https://kahoot.it/">Open the game page</a></li>
+    <li><b>Stop the camera question</b>On the game page, tap the same icon, then Website Settings, then set Camera to Allow. The helper can then come back by itself after a reload.</li>
+  </ol>
+
+  <h2>Practice without a game</h2>
+  <p>Do this once to find the right distance and zoom.</p>
+  <ul>
+    <li>Open the practice slide on a laptop or TV.</li>
+    <li>On the game page, tap the gear, then Test camera and AI.</li>
+    <li>Look at the photo it shows. If you can’t read the answers in it, move closer or raise the zoom.</li>
+  </ul>
+  <a class="btn" href="practice.html">Open the practice slide</a>
+
+  <h2>During a game</h2>
+  <ul>
+    <li>Join with the PIN as usual. You can’t use the Kahoot app for this, only Safari.</li>
+    <li>In the lobby, tap the small camera preview to make it bigger, then use the zoom buttons until the host’s screen fills it.</li>
+    <li>When it says <b>Aim at the screen</b>, frame the host’s screen again and keep the phone still until the answers appear.</li>
+    <li><span class="key" style="background:#00c766"></span><b>Green box:</b> the likely answer, with its text so you can check it against the screen.</li>
+    <li><span class="key" style="background:#ffc233"></span><b>Amber box with a dashed border:</b> a best guess. Use your own judgement if you know better.</li>
+    <li><b>Can’t read it:</b> guess right away. A wrong answer costs nothing, and a blank scores zero too.</li>
+    <li>The box never blocks your tap. It can be wrong, so read what it says.</li>
+  </ul>
+
+  <h2>No app? Use a bookmark</h2>
+  <p>Works without installing anything, but you tap it each time you open the game page.</p>
+  <ol>
+    <li><b>Copy the code</b><code id="bookmarklet"></code>
+      <button class="btn" id="copy" type="button">Copy the code</button></li>
+    <li><b>Save any page as a bookmark</b>Tap Share, then Add Bookmark, name it Quiz Helper and save.</li>
+    <li><b>Swap its address</b>Open Bookmarks, tap Edit, tap Quiz Helper, clear the address and paste the code.</li>
+    <li><b>Use it</b>On the game page, open Bookmarks and tap Quiz Helper. Anywhere else it takes you to the game page first, and you tap it again there.</li>
+  </ol>
+
+  <h2>What leaves your phone</h2>
+  <ul>
+    <li><b>Photos of the host’s screen</b> go to the AI company whose key you added. Groq says it does not keep inference data by default. Google’s free tier can use them to improve its products, and its reviewers may see them. That may break Kahoot’s rule against using its content to improve an AI model, so leave the Gemini key empty unless you accept that. Google’s terms also ask you to be 18 or older and not to send personal information, and a question about your friend on that screen counts. Keep people out of the frame.</li>
+    <li><b>Your key</b> goes only to its own company. It is stored on the game page, where that site’s scripts could read it, so never use a key with billing on it.</li>
+    <li><b>Your notes</b> never leave the phone.</li>
+    <li>Nothing is sent to this site, and it has no tracking.</li>
+  </ul>
+
+  <p class="small" style="margin-top:32px">Not made by or connected to Kahoot!. Its terms may not allow this kind of help, so using it is your own risk.</p>
+</main>
+<script>
+var base = new URL('helper.js', location.href).href;
+var code = "javascript:(function(){if(location.hostname!=='kahoot.it'){location.href='https://kahoot.it/';return}var s=document.createElement('script');s.src='" + base + "?v='+Math.floor(Date.now()/6e5);document.documentElement.appendChild(s)})();";
+document.getElementById('bookmarklet').textContent = code;
+document.getElementById('copy').addEventListener('click', function () {
+  var button = this;
+  function done(text) {
+    button.textContent = text;
+    setTimeout(function () { button.textContent = 'Copy the code'; }, 1600);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(code).then(function () { done('Copied'); }, function () { done('Press and hold the code to copy it'); });
+  } else {
+    done('Press and hold the code to copy it');
+  }
+});
+</script>
+</body>
+</html>
