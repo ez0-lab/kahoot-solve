@@ -35,7 +35,24 @@ p{margin:6px 0 0}
 .btn:focus-visible{outline:2px solid #3f8cff;outline-offset:2px}
 .small{font-size:14px;color:var(--soft)}
 code{display:block;margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--quiet);font:13px/1.45 ui-monospace,Menlo,Consolas,monospace;overflow-wrap:anywhere;user-select:all;-webkit-user-select:all}
-.key{display:inline-block;width:1.05em;height:1.05em;margin-right:.3em;border-radius:3px;vertical-align:-.15em}
+/* Small copies of what the helper really draws, in its own colours. They stay the same in light and dark. */
+.states{display:grid;gap:18px;margin-top:20px}
+.state{display:grid;grid-template-columns:140px 1fr;gap:14px;align-items:center}
+.state p{margin:0;font-size:15px;line-height:1.4}
+.state b{display:block;font-size:17px}
+.tile{position:relative;display:flex;align-items:flex-end;justify-content:center;height:92px;padding:5px;border-radius:6px;color:#fff;font-size:13px;font-weight:600;line-height:1.2;text-align:center}
+.tile.ok{background:#17c466;border:3px solid #fff;box-shadow:0 0 0 2px #00e070}
+.tile.maybe{padding:10px;background:#1368ce}
+.tile.maybe::after{content:"";position:absolute;inset:4px;background:linear-gradient(#ffc233 0 0) 0 0/18px 4px,linear-gradient(#ffc233 0 0) 0 0/4px 18px,linear-gradient(#ffc233 0 0) 100% 0/18px 4px,linear-gradient(#ffc233 0 0) 100% 0/4px 18px,linear-gradient(#ffc233 0 0) 0 100%/18px 4px,linear-gradient(#ffc233 0 0) 0 100%/4px 18px,linear-gradient(#ffc233 0 0) 100% 100%/18px 4px,linear-gradient(#ffc233 0 0) 100% 100%/4px 18px;background-repeat:no-repeat}
+.tile span{display:block;padding:3px 9px 4px;border-radius:8px;background:rgba(8,8,12,.86)}
+.tile strong{display:block;font-size:15px;font-weight:800;color:#6dffad}
+.tile.maybe strong{color:#ffc233}
+.pill{padding:8px 10px 9px;border-radius:12px;background:#101016;box-shadow:inset 0 0 0 1px var(--line);color:#f5f5f7;font-size:15px;font-weight:700;line-height:1.2}
+.pill small{display:block;margin-top:1px;font-size:12px;font-weight:500}
+.pill.retry{background:#fff;color:#0b0b10}
+.pill.limit{background:#8fdcff;color:#0b0b10}
+.pill.guess{background:#ff9f92;color:#0b0b10}
+@media (max-width:340px){.state{grid-template-columns:1fr}}
 @media (hover:hover) and (pointer:fine){.btn:hover{filter:brightness(.94)}.btn.main:hover{filter:brightness(1.2)}}
 @media (prefers-color-scheme:dark) and (hover:hover) and (pointer:fine){.btn.main:hover{filter:brightness(.9)}.btn:hover{filter:brightness(1.25)}}
 @media (prefers-reduced-motion:reduce){.btn{transition:none}.btn:active{transform:none}}
@@ -57,7 +74,7 @@ code{display:block;margin-top:10px;padding:10px 12px;border-radius:10px;backgrou
     <li><b>Turn it on in Safari</b>Tap the <b style="display:inline">aA</b> or puzzle icon in the address bar, then Manage Extensions, then turn on Userscripts. Tap Userscripts in that menu and choose Always Allow on Every Website.</li>
     <li><b>Add the helper</b>Open the script, tap the same icon, tap Userscripts and follow the install prompt.
       <a class="btn" href="quiz-helper.user.js">Open the script</a></li>
-    <li><b>Get a free AI key</b>Create a Groq API key and copy it. A Google key is an optional backup, so read What leaves your phone below before you make one. Neither site should ask for a card. If one does, stop and leave it, because this project spends no money.
+    <li><b>Get a free AI key</b>Create a Groq API key and copy it. A Google key is an optional backup that goes under More options, so read What leaves your phone below before you make one. Neither site should ask for a card. If one does, stop and leave it, because this project spends no money.
       <a class="btn" href="https://console.groq.com/keys">Get a Groq key</a>
       <a class="btn" href="https://aistudio.google.com/apikey">Google AI Studio, optional</a></li>
     <li><b>Paste the key</b>Open the game page. The settings open by themselves the first time. Paste the key, tap Done and allow the camera.
@@ -80,12 +97,36 @@ code{display:block;margin-top:10px;padding:10px 12px;border-radius:10px;backgrou
     <li>Join with the PIN as usual. You can’t use the Kahoot app for this, only Safari.</li>
     <li>In the lobby, tap the small camera preview to make it bigger, then use the zoom buttons until the host’s screen fills it.</li>
     <li>When it says <b>Aim at the screen</b>, frame the host’s screen again and keep the phone still until the answers appear.</li>
-    <li><span class="key" style="background:#00c766"></span><b>Green box:</b> the likely answer, with its text so you can check it against the screen.</li>
-    <li><span class="key" style="background:#ffc233"></span><b>Amber box with a dashed border:</b> a best guess. Use your own judgement if you know better.</li>
-    <li><b>Can’t read it:</b> guess right away. A wrong answer costs nothing, and a blank scores zero too.</li>
-    <li><b>Free limit. Next try in 12 s:</b> the free AI needs a short wait. Keep aiming at the screen and the box comes after it. If you know the answer, tap it now, because waiting costs points.</li>
-    <li><b>Free AI used up for today:</b> guess for the rest of the game. A 20-question game takes about a third of Groq’s free daily tokens, so two games a day fit and a third may not.</li>
-    <li>The box never blocks your tap. It can be wrong, so read what it says. The percent is the AI’s own estimate. In one real game, 2 of the 8 answers it rated 90% or higher were wrong.</li>
+  </ul>
+  <div class="states">
+    <div class="state">
+      <div class="pill" aria-hidden="true">Reading…</div>
+      <p><b>Reading</b>The photo has gone to the AI. Keep the phone still.</p>
+    </div>
+    <div class="state">
+      <div class="tile ok" aria-hidden="true"><span><strong>Likely</strong>Paris</span></div>
+      <p><b>Green frame</b>The likely answer, with its text so you can check it against the screen. <i>From notes</i> in the same frame means one of your notes matched.</p>
+    </div>
+    <div class="state">
+      <div class="tile maybe" aria-hidden="true"><span><strong>Not sure</strong>Paris</span></div>
+      <p><b>Amber corners</b>A best guess. Use your own judgement if you know better.</p>
+    </div>
+    <div class="state">
+      <div class="pill retry" aria-hidden="true">Hold steady<small>Reading again</small></div>
+      <p><b>Hold steady</b>The first photo was unclear, so it takes another.</p>
+    </div>
+    <div class="state">
+      <div class="pill limit" aria-hidden="true">Next try in 12&nbsp;s<small>Free limit. Tap an answer if you know it.</small></div>
+      <p><b>Short wait</b>The free AI needs a moment. Keep aiming and the box comes after it. If you know the answer, tap it now, because waiting costs points.</p>
+    </div>
+    <div class="state">
+      <div class="pill guess" aria-hidden="true">Guess now<small>Couldn’t read the screen</small></div>
+      <p><b>Guess now</b>The line under it says why. Guess right away: a wrong answer costs nothing, and a blank scores zero too.</p>
+    </div>
+  </div>
+  <ul>
+    <li><b>Free AI used up for today</b> means guess for the rest of the game. A 20-question game takes about a third of Groq’s free daily tokens, so two games a day fit and a third may not.</li>
+    <li>The box never blocks your tap. It can be wrong, so read what it says. In one real game, 2 of the 8 answers the AI rated 90% or higher were wrong, so the box says Likely and never a percent.</li>
   </ul>
 
   <h2>No app? Use a bookmark</h2>
@@ -100,7 +141,7 @@ code{display:block;margin-top:10px;padding:10px 12px;border-radius:10px;backgrou
 
   <h2>What leaves your phone</h2>
   <ul>
-    <li><b>Photos of the host’s screen</b> go to the AI company whose key you added. Groq says it does not keep inference data by default, though it can keep logs for up to 30 days to check reliability and abuse. Google’s free tier can use them to improve its products, and its reviewers may see them. That may break Kahoot’s rule against using its content to improve an AI model, so leave the Gemini key empty unless you accept that. Google’s terms also ask you to be 18 or older and not to send personal information, and a question about your friend on that screen counts. Keep people out of the frame.</li>
+    <li><b>Photos of the host’s screen</b> go to the AI company whose key you added. Groq says it does not keep inference data by default, though it can keep logs for up to 30 days to check reliability and abuse. Google’s free tier can use them to improve its products, and its reviewers may see them. That may break Kahoot’s rule against using its content to improve an AI model, so leave the Google key empty unless you accept that. Google’s terms also ask you to be 18 or older and not to send personal information, and a question about your friend on that screen counts. Keep people out of the frame.</li>
     <li><b>Your key</b> goes only to its own company. It is stored on the game page, where that site’s scripts could read it, so never use a key with billing on it.</li>
     <li><b>Your notes</b> are never sent anywhere by the helper. Like the key, they are stored on the game page, where that site’s scripts could read them.</li>
     <li>Nothing is sent to this site, and it has no tracking.</li>

@@ -37,7 +37,7 @@
   const CALL_TIMEOUT_MS = 6000;
   const ANSWER_SELECTOR = '[data-functional-selector^="answer-"]';
   const REJECTED = [400, 401, 403, 404]; // The key or the model is wrong, so asking again cannot help.
-  const CAMERA_HELP = 'Tap aA or the puzzle icon in the address bar, then Website Settings, and allow Camera.';
+  const CAMERA_HELP = 'aA or puzzle icon › Website Settings › Camera › Allow';
   const PHOTO_TOKENS = 3466; // Measured in tools/results/compare.md: 1253 usage, 163 output and a flat 2050 that Groq adds for any photo, whatever its size or quality.
   const BUDGET_PAD = 130000; // Tokens. Far over the 7000 a minute, so Groq can never accept it, and under the model's 131072 context, which answers with no numbers.
   const BUDGET_HELP = 'A question uses one, or two if the first photo is unclear. About 2 more come back each hour.';
@@ -250,7 +250,10 @@ JSON fields:
 
   function budgetText(status, body) {
     const { daily, limit, used } = parseLimit(body);
-    if (daily && used !== null) return `About ${Math.floor(Math.max(0, limit - used) / PHOTO_TOKENS)} photos left on Groq today. ${BUDGET_HELP}`;
+    if (daily && used !== null) {
+      const photos = Math.floor(Math.max(0, limit - used) / PHOTO_TOKENS);
+      return `About ${photos} photo${photos === 1 ? '' : 's'} left on Groq today. ${BUDGET_HELP}`;
+    }
     if (status === 413) return `More than ${Math.floor(BUDGET_PAD / PHOTO_TOKENS)} photos left on Groq today. ${BUDGET_HELP}`; // The day has room for all of it, and only the minute refused.
     return REJECTED.includes(status) ? 'Groq rejected this key or model.' : `Could not read the budget (HTTP ${status}).`;
   }
@@ -398,149 +401,216 @@ JSON fields:
   const STYLE = `
 :host{all:initial}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-.ui{font:600 15px/1.3 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#f5f5f7;-webkit-text-size-adjust:100%}
-button{font:inherit;color:inherit;border:0;background:none;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;cursor:pointer;transition:transform 100ms cubic-bezier(.23,1,.32,1)}
+.ui{--out:cubic-bezier(.23,1,.32,1);--move:cubic-bezier(.77,0,.175,1);--ink:#f5f5f7;--soft:#a9a9b5;--hud:#101016;--page:#08080c;--card:#1b1b22;--line:#2f2f39;--dark:#0b0b10;--likely:#00e070;--unsure:#ffc233;--wait:#8fdcff;--none:#ff9f92;--link:#7cb7ff;--danger:#ff7b72;--round:ui-rounded,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font:600 15px/1.3 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);-webkit-text-size-adjust:100%}
+button{font:inherit;color:inherit;border:0;background:none;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;cursor:pointer;transition:transform 100ms var(--out)}
 button:active{transform:scale(.97)}
-button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid #7cb7ff;outline-offset:2px}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid var(--link);outline-offset:2px}
 
-.hud{position:fixed;z-index:3;top:calc(env(safe-area-inset-top,0px) + 6px);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;width:max-content;max-width:calc(100vw - 16px);min-height:44px;padding:4px;border-radius:14px;background:#0e0e14;box-shadow:0 2px 8px rgba(0,0,0,.3);pointer-events:auto;user-select:none;-webkit-user-select:none}
+/* Corner brackets are the helper's one shape: framing on the preview, and "not locked on" on a tile. */
+.vf::after,.mark.maybe::before,.mark.maybe::after{content:"";position:absolute;pointer-events:none;background:linear-gradient(var(--c) 0 0) 0 0/var(--l) var(--t),linear-gradient(var(--c) 0 0) 0 0/var(--t) var(--l),linear-gradient(var(--c) 0 0) 100% 0/var(--l) var(--t),linear-gradient(var(--c) 0 0) 100% 0/var(--t) var(--l),linear-gradient(var(--c) 0 0) 0 100%/var(--l) var(--t),linear-gradient(var(--c) 0 0) 0 100%/var(--t) var(--l),linear-gradient(var(--c) 0 0) 100% 100%/var(--l) var(--t),linear-gradient(var(--c) 0 0) 100% 100%/var(--t) var(--l);background-repeat:no-repeat}
+
+/* Centred with auto margins, because the state animations own transform. */
+.hud{position:fixed;z-index:3;top:calc(env(safe-area-inset-top,0px) + 6px);left:0;right:0;margin:0 auto;display:flex;align-items:center;gap:8px;width:max-content;max-width:calc(100vw - 16px);min-height:46px;padding:4px;border-radius:16px;background:var(--hud);box-shadow:0 4px 14px rgba(0,0,0,.35);pointer-events:auto;user-select:none;-webkit-user-select:none}
 .hud.playing{pointer-events:none}
 .hud.playing .gear{display:none}
-.hud.aim{flex-wrap:wrap;justify-content:center;width:min(calc(100vw - 16px),460px)}
+.hud.aim{flex-wrap:wrap;justify-content:center;width:min(calc(100vw - 16px),460px);width:min(calc(100vw - 16px),460px,calc((100svh - 120px)*16/9))}
 .hud.aim .status{flex-basis:calc(100% - 56px);text-align:center}
 .hud .seg{display:none}
 .hud.aim .vf:not([hidden])~.seg{display:grid;flex-basis:100%}
+.hud[data-kind=idle] .vf[hidden]~.status{display:none}
 
-.vf{position:relative;flex:none;width:68px;aspect-ratio:16/9;padding:0;overflow:hidden;border-radius:10px;background:#000}
+/* Each state that needs the player has its own fill, so it reads before its words do. Amber stays on the tile and means "not sure" only. */
+.hud[data-kind=retry]{background:#fff;color:var(--dark)}
+.hud[data-kind=limit]{background:var(--wait);color:var(--dark);padding-bottom:15px}
+.hud[data-kind=aim]{padding-bottom:16px}
+.hud[data-kind=error],.hud[data-kind=unreadable]{background:var(--none);color:var(--dark);animation:nudge 260ms var(--move)}
+@keyframes nudge{25%{transform:translateX(-5px)}50%{transform:translateX(4px)}75%{transform:translateX(-2px)}}
+
+.vf{position:relative;flex:none;width:68px;aspect-ratio:16/9;padding:0;overflow:hidden;border-radius:12px;background:#000}
 .vf[hidden]{display:none}
 .hud.aim .vf{width:100%}
 .vf video{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;pointer-events:none}
-.bar{position:absolute;left:0;right:0;bottom:0;height:4px;background:#fff;transform:scaleX(0);transform-origin:left center}
+/* Reading: a beam sweeps the preview. */
+.vf::before{content:"";position:absolute;z-index:1;inset:0;pointer-events:none;background:linear-gradient(transparent 50%,rgba(255,255,255,.3) 90%,#fff 97%);transform:translateY(-100%)}
+.hud[data-kind=reading] .vf::before{animation:scan 800ms linear infinite}
+@keyframes scan{to{transform:translateY(0)}}
+/* Retry: the brackets grip fast, because the player has something to do: hold steady. */
+.vf::after{--c:#fff;--t:2px;--l:11px;inset:4px;opacity:0}
+.hud.aim .vf::after{--t:3px;--l:28px;inset:9px;opacity:.9}
+.hud[data-kind=retry] .vf::after{opacity:1;animation:grip 300ms var(--move) infinite alternate}
+@keyframes grip{to{transform:scale(.8)}}
 
-.status{flex:1 1 auto;min-width:0;padding:0 6px}
-.hud[data-kind=confident] .status{color:#5dfc9d}
-.hud[data-kind=unsure] .status,.hud[data-kind=limit] .status{color:#ffd54f}
-.hud[data-kind=limit] .bar{background:#ffd54f}
-.hud[data-kind=error] .status,.hud[data-kind=unreadable] .status{color:#ff9d94}
-/* Reading breathes slowly, and a retry three times as fast because the player has something to do: hold steady. */
-.hud[data-kind=reading] .status{animation:pulse 900ms ease-in-out infinite alternate}
-.hud[data-kind=retry] .status{animation:pulse 300ms ease-in-out infinite alternate}
-@keyframes pulse{to{opacity:.55}}
+/* The countdown, under everything else in the HUD: the get-ready time and a free-limit wait. */
+.track{position:absolute;left:10px;right:10px;bottom:5px;height:6px;overflow:hidden;border-radius:3px;background:rgba(255,255,255,.22);opacity:0}
+.hud[data-kind=limit] .track{background:rgba(11,11,16,.2)}
+.hud[data-kind=aim] .track,.hud[data-kind=limit] .track{opacity:1}
+.bar{display:block;height:100%;background:currentColor;transform:scaleX(0);transform-origin:left center}
 
-.cam{flex:none;min-height:36px;padding:0 14px;border-radius:10px;background:#fff;color:#111}
+.status{flex:1 1 auto;min-width:0}
+.now,.why{display:block;padding:0 6px;overflow-wrap:anywhere}
+.now:empty,.why:empty{display:none}
+.now{font:700 17px/1.2 var(--round);font-variant-numeric:tabular-nums}
+.why{padding-top:1px;font-size:13px;font-weight:500;line-height:1.25}
+/* With a box up, the box says it all. Only a screen reader still hears this line. */
+.hud[data-kind=confident] .status,.hud[data-kind=unsure] .status{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+
+.cam{flex:none;min-height:44px;padding:0 14px;border-radius:12px;background:#fff;color:var(--dark);font-weight:700}
 .cam[hidden]{display:none}
-.gear{flex:none;display:grid;place-items:center;width:36px;height:36px;border-radius:10px;color:#c9c9d2}
+.gear{flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:12px}
 .gear svg{width:21px;height:21px}
 
-.mark{position:fixed;z-index:2;top:0;left:0;display:flex;align-items:flex-end;justify-content:center;padding:10px;border-radius:6px;pointer-events:none;animation:appear 120ms cubic-bezier(.23,1,.32,1)}
+.mark{position:fixed;z-index:2;top:0;left:0;display:flex;align-items:flex-end;justify-content:center;padding:clamp(4px,1.6vw,8px);border-radius:6px;pointer-events:none;animation:appear 120ms var(--out)}
 @keyframes appear{from{opacity:0}}
-/* A confident box lands. An unsure one only fades in and its dashed frame keeps breathing. The text stays still in both, and both take the same 120 ms as before. */
-.mark.ok{animation-name:land}
-@keyframes land{from{opacity:0;transform:scale(.97)}}
-/* The fill must read as green on all four tile colours, including the green tile, so the white border and glow do the rest. */
-.mark.ok{background:rgba(0,220,110,.62);border:4px solid #fff;box-shadow:0 0 0 3px #00e676}
-/* A white dashed border stays visible on the yellow tile, where an amber one would not. */
-.mark.maybe{padding:14px;background:rgba(255,179,0,.3)}
-.mark.maybe::after{content:"";position:absolute;inset:0;border:4px dashed #fff;border-radius:inherit;animation:pulse 900ms ease-in-out infinite alternate}
-.mark.dim{background:rgba(0,0,0,.6)}
-.text{max-width:100%;padding:4px 10px;border-radius:9px;background:rgba(0,0,0,.7);color:#fff;font-size:17px;font-weight:700;line-height:1.25;text-align:center;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--lines,5);overflow-wrap:anywhere} /* Real game: 10 of 28 tiles ran over 42 characters, and three lines cut them. */
-.pct{position:absolute;top:7px;right:7px;padding:2px 8px;border-radius:9px;background:#fff;color:#0a0a0a;font-size:14px}
-.mark.maybe .pct{background:#ffd54f}
+/* Likely: a full frame locks on, closing in from just outside the tile. Opaque enough to read as the same green on all four tile colours. */
+.mark.ok{background:rgba(0,224,112,.86);border:4px solid #fff;box-shadow:0 0 0 3px var(--likely);animation-name:land}
+@keyframes land{from{opacity:0;transform:scale(1.05)}}
+/* Not sure: only the corners of a frame, which keep breathing. The dark layer keeps amber visible on the yellow tile. The text stays still. */
+.mark.maybe{padding:clamp(7px,3.6vw,14px);background:rgba(255,194,51,.18)}
+.mark.maybe::before{--c:var(--dark);--t:10px;--l:clamp(26px,12vw,46px);inset:3px}
+.mark.maybe::after{--c:var(--unsure);--t:6px;--l:clamp(22px,11vw,42px);inset:5px}
+.mark.maybe::before,.mark.maybe::after{animation:breathe 900ms var(--move) infinite alternate}
+@keyframes breathe{to{opacity:.55;transform:scale(.97)}}
+.mark.dim{background:rgba(0,0,0,.55)}
+/* One block, read in one look: how sure first, then the words to check against the host's screen. */
+.say{max-width:100%;padding:clamp(3px,1.5vw,6px) clamp(4px,2vw,8px) clamp(4px,2vw,8px);border-radius:12px;background:rgba(8,8,12,.92);color:#fff;text-align:center}
+.word{font:800 clamp(15px,5.4vw,21px)/1.15 var(--round);color:#6dffad}
+.mark.maybe .word{color:var(--unsure)}
+.text{margin-top:1px;font-size:17px;font-weight:600;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--lines,5);overflow-wrap:anywhere} /* Real game: 10 of 28 tiles ran over 42 characters, and three lines cut them. */
 
-.sheet{position:fixed;z-index:4;top:0;left:0;right:0;bottom:0;overflow-y:auto;overscroll-behavior:contain;padding:0 16px calc(env(safe-area-inset-bottom,0px) + 28px);background:#101015;font-weight:400;pointer-events:auto}
+.sheet{position:fixed;z-index:4;top:0;left:0;right:0;bottom:0;overflow-y:auto;overscroll-behavior:contain;padding:0 16px calc(env(safe-area-inset-bottom,0px) + 32px);background:var(--page);font-weight:400;pointer-events:auto;animation:rise 280ms cubic-bezier(.32,.72,0,1)}
+@keyframes rise{from{transform:translateY(100%)}}
 .sheet[hidden]{display:none}
 .sheet:focus{outline:none}
 .inner{max-width:520px;margin:0 auto}
-header{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;margin:0 -16px;padding:calc(env(safe-area-inset-top,0px) + 8px) 16px 8px;background:#101015}
-h1{margin:0;font-size:20px;font-weight:700}
-h2{margin:0 0 6px;font-size:15px;font-weight:700;color:#f5f5f7}
-section{margin-top:26px}
-a{color:#7cb7ff}
-summary{padding:12px 0 2px;font-size:14px;color:#c9c9d2;cursor:pointer;user-select:none;-webkit-user-select:none}
-.secret{-webkit-text-security:disc}
-label{display:block;margin-top:10px;font-size:14px;color:#c9c9d2}
-input,select,textarea{display:block;width:100%;margin-top:5px;padding:10px 12px;border:1px solid #33333e;border-radius:10px;background:#1b1b22;color:#fff;font:400 16px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-input,select{min-height:44px}
-input[type=range]{padding:0;border:0;background:none;accent-color:#00e676}
+header{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;margin:0 -16px;padding:calc(env(safe-area-inset-top,0px) + 8px) 16px 8px;background:var(--page)}
+h1{margin:0;font:700 22px/1.2 var(--round)}
+h2{margin:0 0 8px;padding-left:4px;font:700 17px/1.25 var(--round);color:var(--ink)}
+section{margin-top:24px}
+a{color:var(--link)}
+.done{min-height:44px;padding:0 18px;border-radius:12px;background:#fff;color:var(--dark);font-weight:700}
+
+.card{border-radius:14px;background:var(--card);overflow:hidden}
+.card.list>*+*{border-top:1px solid var(--line)}
+.card.pad{padding:12px}
+.card+.card{margin-top:12px}
+.row{display:block;padding:10px 14px 2px;font-size:13px;font-weight:500;color:var(--soft)}
+.act{display:flex;align-items:center;width:100%;min-height:46px;padding:0 14px;font-size:16px;font-weight:500;color:var(--link);text-align:left;text-decoration:none;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;transition:opacity 100ms var(--out)}
+.act:active{opacity:.55;transform:none}
+.act.clear{color:var(--danger)}
+.primary{display:block;width:100%;min-height:48px;margin-top:10px;border-radius:12px;background:#fff;color:var(--dark);font-size:16px;font-weight:700}
+.out{margin:0;padding:11px 14px;font-size:14px;line-height:1.4;color:var(--ink)}
+.out:empty{display:none}
+.note{margin:8px 4px 0;font-size:13px;line-height:1.4;color:var(--soft)}
+input,select,textarea{display:block;width:100%;margin:2px 0 6px;padding:4px 0 6px;border:0;border-radius:6px;background:none;color:#fff;caret-color:var(--likely);font:400 16px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+input,select{min-height:36px}
+input::placeholder,textarea::placeholder{color:#8e8e9a}
+input[type=range]{padding:0;min-height:44px;accent-color:var(--likely)}
 textarea{min-height:128px;resize:vertical}
-p{margin:8px 0 0;font-size:14px;line-height:1.45;color:#a2a2ad}
-.btn{display:block;width:100%;min-height:46px;margin-top:10px;padding:0 14px;border-radius:12px;background:#26262f;font-weight:600}
-.btn.primary,.done{background:#fff;color:#0d0d10}
-.done{min-height:38px;padding:0 16px;border-radius:10px;font-weight:600}
-.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:6px}
-.seg button{min-height:44px;border-radius:10px;background:#26262f;font-weight:600}
-.seg button[aria-pressed=true]{background:#fff;color:#0d0d10}
+.secret{-webkit-text-security:disc}
+output{color:#fff;font-weight:700}
+summary{min-height:44px;padding:10px 4px;font:700 17px/1.4 var(--round);color:var(--ink);cursor:pointer;touch-action:manipulation;user-select:none;-webkit-user-select:none;transition:opacity 100ms var(--out)}
+summary:active{opacity:.55}
+details .card{margin-top:4px}
+details .note+.card{margin-top:16px}
+
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:2px;padding:2px;border-radius:12px;background:rgba(255,255,255,.1)}
+.seg button{min-height:44px;border-radius:10px}
+.seg button[aria-pressed=true]{background:#fff;color:var(--dark)}
 .shot{display:block;width:100%;margin-top:12px;border-radius:10px}
 .shot[hidden]{display:none}
 .result{margin:10px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font:400 14px/1.45 ui-monospace,Menlo,Consolas,monospace;color:#dcdce3;user-select:text;-webkit-user-select:text}
-output{color:#fff}
+.result:empty{display:none}
 
-@media (hover:hover) and (pointer:fine){
-  .btn:hover,.seg button:hover{background:#32323d}
-  .btn.primary:hover,.done:hover,.seg button[aria-pressed=true]:hover,.cam:hover{background:#e8e8ec}
-  .gear:hover{background:rgba(255,255,255,.1)}
+/* Beside the camera button the words had five lines at 320 px. Safari's 200% page zoom leaves about 195 px, too narrow for any row. */
+@media (max-width:340px){
+  .hud:has(.cam:not([hidden])){flex-wrap:wrap;justify-content:center}
+  .hud:has(.cam:not([hidden])) .status{flex-basis:100%}
+}
+@media (max-width:300px){
+  .hud{flex-wrap:wrap;justify-content:center}
+  .status{flex-basis:100%}
 }
 @media (prefers-reduced-motion:reduce){
   button{transition:none}
+  button:active{transform:none;opacity:.7}
   .mark.ok{animation-name:appear}
-  .mark.maybe::after,.hud[data-kind=reading] .status,.hud[data-kind=retry] .status{animation:none}
+  .sheet{animation:appear 120ms var(--out)}
+  .hud[data-kind=error],.hud[data-kind=unreadable],.hud[data-kind=reading] .vf::before,.hud[data-kind=retry] .vf::after,.mark.maybe::before,.mark.maybe::after{animation:none}
 }`;
 
   const GEAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.9 2.9l-.1-.1a1.7 1.7 0 0 0-2.8 1.2V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.9-2.9l.1-.1a1.7 1.7 0 0 0-1.2-2.8H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.9-2.9l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.9 2.9l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
 
   // A text field with hidden dots, because a password field makes iOS offer to save and fill passwords here.
-  const field = (key, label, secret) => `<label>${label}<input data-k="${key}" type="text"${secret ? ' class="secret"' : ''} autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done"></label>`;
+  const field = (key, label, secret) => `<label class="row">${label}<input data-k="${key}" type="text"${secret ? ' class="secret" placeholder="Paste it here"' : ''} autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done"></label>`;
   const ZOOMS = '<div class="seg"><button type="button" data-z="0.5" hidden>0.5×</button><button type="button" data-z="1">1×</button><button type="button" data-z="1.5">1.5×</button><button type="button" data-z="2">2×</button><button type="button" data-z="3">3×</button></div>';
 
   const MARKUP = `
 <div class="ui">
   <div class="marks"></div>
   <div class="hud" data-kind="idle">
-    <button class="vf" type="button" aria-label="Make the camera preview bigger or smaller" hidden><video playsinline muted autoplay></video><span class="bar"></span></button>
+    <button class="vf" type="button" aria-label="Make the camera preview bigger or smaller" hidden><video playsinline muted autoplay></video></button>
     ${ZOOMS}
+    <div class="status" role="status" aria-live="polite"><b class="now"></b><span class="why"></span></div>
     <button class="cam" type="button">Start camera</button>
-    <div class="status" role="status" aria-live="polite"></div>
     <button class="gear" type="button" aria-label="Settings">${GEAR}</button>
+    <span class="track"><span class="bar"></span></span>
   </div>
   <div class="sheet" role="dialog" aria-modal="true" aria-label="Quiz Helper settings" tabindex="-1" hidden>
     <div class="inner">
       <header><h1>Quiz Helper</h1><button class="done" type="button">Done</button></header>
       <section>
         <h2>Free AI key</h2>
-        ${field('groq-key', 'Groq key', true)}
-        ${field('gemini-key', 'Gemini key, optional backup', true)}
-        <p>Get a key from <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Groq</a>. A key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a> takes over if Groq fails or hits its free limit, but Google’s free tier can use your photos to improve its products. Keys stay on this phone and only go to their own company.</p>
-        <button class="btn budget" type="button">Check free budget</button>
-        <p class="budgetOut" role="status"></p>
-        <details>
-          <summary>Models</summary>
-          ${field('groq-model', 'Groq model')}
-          ${field('gemini-model', 'Gemini model')}
-          <label>Ask first<select data-k="first"><option value="groq">Groq</option><option value="gemini">Gemini</option></select></label>
-        </details>
+        <div class="card list">
+          <a class="act" href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Get a free key from Groq</a>
+          ${field('groq-key', 'Key from Groq', true)}
+          <button class="act budget" type="button">Check free budget</button>
+          <p class="out budgetOut" role="status"></p>
+        </div>
+        <p class="note">Groq is the AI company that reads the photos. It asks for no card. The key stays on this phone and only goes to Groq.</p>
       </section>
       <section>
         <h2>Camera</h2>
-        ${ZOOMS}
-        <button class="btn primary test" type="button">Test camera and AI</button>
-        <img class="shot" alt="Last photo sent to the AI" hidden>
-        <pre class="result"></pre>
-        <p>Point at any quiz on a screen. Each photo goes to the AI company you picked, so keep people out of the frame. Each test uses one photo of the free budget.</p>
-      </section>
-      <section>
-        <h2>Green box at <output class="thresholdOut"></output> confidence or more</h2>
-        <input class="threshold" type="range" min="50" max="99" step="1" aria-label="Confidence needed for the green box">
+        <div class="card pad">
+          ${ZOOMS}
+          <button class="primary test" type="button">Test camera and AI</button>
+          <img class="shot" alt="Last photo sent to the AI" hidden>
+          <pre class="result"></pre>
+        </div>
+        <p class="note">Point at any quiz on a screen. Each photo goes to the AI company, so keep people out of the frame. Each test uses one photo of the free budget.</p>
       </section>
       <section>
         <h2>Notes about your friend</h2>
-        <textarea data-k="notes" placeholder="favourite colour: blue&#10;nome do cão: Rex&#10;born in: Porto" autocapitalize="none" spellcheck="false"></textarea>
-        <p>One fact per line: words from the likely question, a colon, then the answer. Notes stay on this phone and never go to the AI.</p>
+        <div class="card">
+          <label class="row">One fact per line: words from the likely question, a colon, then the answer.<textarea data-k="notes" placeholder="favourite colour: blue&#10;nome do cão: Rex&#10;born in: Porto" autocapitalize="none" spellcheck="false"></textarea></label>
+        </div>
+        <p class="note">Notes stay on this phone and never go to the AI.</p>
       </section>
       <section>
-        <h2>Log</h2>
-        <p class="logCount"></p>
-        <button class="btn export" type="button">Export log</button>
-        <button class="btn clear" type="button">Clear log</button>
+        <h2>Game log</h2>
+        <div class="card list">
+          <p class="out logCount"></p>
+          <button class="act export" type="button">Export log</button>
+          <button class="act clear" type="button">Clear log</button>
+        </div>
+      </section>
+      <section>
+        <details>
+          <summary>More options</summary>
+          <div class="card list">
+            ${field('gemini-key', 'Backup key from Google, optional', true)}
+            <a class="act" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Get a key from Google AI Studio</a>
+          </div>
+          <p class="note">It takes over if Groq fails or hits its free limit. Google’s free tier can use your photos to improve its products, so leave it empty unless you accept that.</p>
+          <div class="card">
+            <label class="row">Green box when the AI says it is at least <output class="thresholdOut"></output> sure<input class="threshold" type="range" min="50" max="99" step="1"></label>
+          </div>
+          <p class="note">That number is only the AI’s own estimate, and it has been wrong at 90% and above.</p>
+          <div class="card list">
+            ${field('groq-model', 'Groq model')}
+            ${field('gemini-model', 'Google model')}
+            <label class="row">Ask first<select data-k="first"><option value="groq">Groq</option><option value="gemini">Google</option></select></label>
+          </div>
+        </details>
       </section>
     </div>
   </div>
@@ -560,18 +630,23 @@ output{color:#fff}
     const video = $('video');
     const bar = $('.bar');
     const camButton = $('.cam');
-    const statusEl = $('.status');
+    const nowEl = $('.now');
+    const whyEl = $('.why');
     const marksEl = $('.marks');
     const sheet = $('.sheet');
     const shotEl = $('.shot');
     const resultEl = $('.result');
+    // iOS Safari uses :active on a button only when a touchstart listener sits on it, an ancestor or the body (MDN browser-compat-data, css/selectors/active.json). On the helper's own root, so the game's own tiles get no listener from the helper.
+    $('.ui').addEventListener('touchstart', () => {}, { passive: true });
 
     const threshold = () => Number(store.get('threshold', String(CONFIDENT_AT)));
-    const shownPct = (confidence) => `${Math.min(confidence, MAX_SHOWN_CONFIDENCE)}%`;
+    // Words, because a real game's reveal frames had 8 picks at 90% or more and only 6 were right. The number stays in Settings and the log.
+    const boxWord = (pick) => (pick.source === 'notes' ? 'From notes' : pick.state === 'confident' ? 'Likely' : 'Not sure');
 
-    function setStatus(kind, text) {
+    function setStatus(kind, now, why = '') {
       hud.dataset.kind = kind;
-      if (statusEl.textContent !== text) statusEl.textContent = text; // A live region must not hear the same words ten times a second.
+      if (nowEl.textContent !== now) nowEl.textContent = now; // A live region must not hear the same words ten times a second.
+      if (whyEl.textContent !== why) whyEl.textContent = why;
     }
 
     // ---------- Log. Every line is written before the reveal it predicts, and tools read the export. ----------
@@ -589,7 +664,8 @@ output{color:#fff}
       if (!sheet.hidden) showLogCount();
     }
     function showLogCount() {
-      $('.logCount').textContent = `${logEntries.filter((e) => e.ev === 'prediction').length} predictions saved on this phone.`;
+      const saved = logEntries.filter((e) => e.ev === 'prediction').length;
+      $('.logCount').textContent = `${saved} prediction${saved === 1 ? '' : 's'} saved on this phone.`;
     }
     async function exportLog() {
       const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
@@ -653,7 +729,7 @@ output{color:#fff}
 
     async function startCamera() {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setStatus('error', 'No camera here. Use Safari.');
+        setStatus('error', 'No camera here', 'Use Safari');
         return;
       }
       const thisStart = ++cameraStarts; // Two quick zoom taps overlap here, and the older lens can open last.
@@ -673,7 +749,8 @@ output{color:#fff}
           lens = null;
           return startCamera();
         }
-        setStatus('error', e.name === 'NotAllowedError' ? `Camera blocked. ${CAMERA_HELP}` : `Camera failed: ${e.name}`);
+        if (e.name === 'NotAllowedError') setStatus('error', 'Camera blocked', CAMERA_HELP);
+        else setStatus('error', 'Camera failed', e.name);
         return;
       }
       if (thisStart !== cameraStarts) {
@@ -792,11 +869,11 @@ output{color:#fff}
     }
 
     function failureText(failures) {
-      if (!failures.length) return 'Add a free AI key';
-      if (failures.some((f) => f.skipped || (f.limit && f.limit.daily))) return 'Free AI used up for today. Guess now.';
-      if (failures.some((f) => f.status === 429)) return 'Free AI limit reached. Guess now.';
-      if (failures.some((f) => f.rejected)) return 'AI key or model rejected. Guess now.';
-      return 'AI not responding. Guess now.';
+      if (!failures.length) return 'No AI key. Add one in Settings';
+      if (failures.some((f) => f.skipped || (f.limit && f.limit.daily))) return 'Free AI used up for today';
+      if (failures.some((f) => f.status === 429)) return 'Free AI limit reached';
+      if (failures.some((f) => f.rejected)) return 'AI key or model rejected';
+      return 'AI not responding';
     }
 
     // ---------- Green box ----------
@@ -823,16 +900,19 @@ output{color:#fff}
         const div = document.createElement('div');
         if (isTarget) {
           div.className = `mark ${suggestion.state === 'confident' ? 'ok' : 'maybe'}`;
-          const pct = document.createElement('div');
-          pct.className = 'pct';
-          pct.textContent = suggestion.source === 'notes' ? 'notes' : `${suggestion.state === 'confident' ? '' : '? '}${shownPct(suggestion.confidence)}`;
-          div.appendChild(pct);
+          const say = document.createElement('div');
+          say.className = 'say';
+          const word = document.createElement('div');
+          word.className = 'word';
+          word.textContent = boxWord(suggestion);
+          say.appendChild(word);
           if (suggestion.text) {
             const text = document.createElement('div');
             text.className = 'text';
             text.textContent = suggestion.text; // textContent, because this string comes from a photo.
-            div.appendChild(text);
+            say.appendChild(text);
           }
+          div.appendChild(say);
         } else if (suggestion.state === 'confident') {
           div.className = 'mark dim';
         } else {
@@ -857,8 +937,8 @@ output{color:#fff}
         if (r.width !== m.w) m.div.style.width = `${r.width}px`;
         if (r.height !== m.h) {
           m.div.style.height = `${r.height}px`;
-          // A short tile keeps its percent readable: 56 px goes to the percent chip and the padding, and a line of text takes 21.25 px.
-          m.div.style.setProperty('--lines', Math.min(5, Math.max(1, Math.floor((r.height - 56) / 21.25))));
+          // A short tile keeps its word readable: 67 px goes to the word and the padding, and a line of text takes 21.25 px.
+          m.div.style.setProperty('--lines', Math.min(5, Math.max(1, Math.floor((r.height - 67) / 21.25))));
         }
         Object.assign(m, { x: r.left, y: r.top, w: r.width, h: r.height });
       });
@@ -903,7 +983,7 @@ output{color:#fff}
         try {
           dataUrl = await capture();
         } catch (e) {
-          if (current === run) setStatus('error', 'Camera is off. Guess now.');
+          if (current === run) setStatus('error', 'Guess now', 'Camera is off');
           log({ ev: 'prediction', index: current.index, state: 'no-camera', startedAt: current.startedAt, doneAt: Date.now() });
           return;
         }
@@ -921,7 +1001,7 @@ output{color:#fff}
           const waitStart = Date.now();
           if (current === run && !current.over) runBar(result.waitMs);
           while (Date.now() < waitStart + result.waitMs && !current.over && current === run) {
-            setStatus('limit', `Free limit. Next try in ${Math.ceil((waitStart + result.waitMs - Date.now()) / 1000)} s`);
+            setStatus('limit', `Next try in ${Math.ceil((waitStart + result.waitMs - Date.now()) / 1000)} s`, 'Free limit. Tap an answer if you know it.');
             await sleep(100);
           }
           waitedMs += Date.now() - waitStart;
@@ -935,7 +1015,7 @@ output{color:#fff}
         // Asking again cannot fix a rejected key or an exhausted free limit, and it would burn more of that limit.
         const pointless = !result.verdict && result.failures.some((f) => f.status === 429 || f.rejected);
         if (readOk || pointless || current.over || attempts >= MAX_ATTEMPTS || deadline - Date.now() < MIN_REMAINING_MS) break;
-        if (current === run) setStatus('retry', 'Hold steady, reading again…');
+        if (current === run) setStatus('retry', 'Hold steady', 'Reading again');
         await sleep(RETRY_GAP_MS);
       }
       if (answered) result = answered;
@@ -977,13 +1057,11 @@ output{color:#fff}
       if (current.over || current !== run) return;
 
       if (!result.verdict) {
-        setStatus('error', failureText(result.failures));
+        setStatus('error', 'Guess now', failureText(result.failures));
       } else if (decision.state === 'unreadable') {
-        setStatus('unreadable', 'Can’t read it. Guess now.');
+        setStatus('unreadable', 'Guess now', 'Couldn’t read the screen');
       } else {
-        const tile = TILES[decision.tile];
-        const how = decision.source === 'notes' ? 'from notes' : decision.state === 'confident' ? shownPct(decision.confidence) : `unsure ${shownPct(decision.confidence)}`;
-        setStatus(decision.state, `${decision.state === 'confident' ? '' : '? '}${tile.symbol} ${tile.label} · ${how}`);
+        setStatus(decision.state, `${boxWord(decision)}: ${TILES[decision.tile].label}`); // Hidden on screen, because the box says it. VoiceOver reads it.
         showSuggestion(decision, result.verdict);
       }
     }
@@ -1004,7 +1082,7 @@ output{color:#fff}
       bar.style.transition = 'none';
       bar.style.transform = 'scaleX(0)';
       if (!fromPage && !isSingleChoice(fields)) {
-        setStatus('unsure', 'This question type isn’t supported.');
+        setStatus('error', 'Guess now', 'This question type isn’t supported');
         log({ ev: 'prediction', index: current.index, type: current.type, state: 'unsupported', startedAt: current.startedAt, doneAt: Date.now() });
         return;
       }
@@ -1031,7 +1109,8 @@ output{color:#fff}
         log({ ev: 'ready', index: event.index, layout: event.layout, type: event.type, leadMs: event.leadMs });
         endQuestion(); // A missed reveal frame must not let the last question's reply draw over this one.
         hud.classList.add('aim');
-        setStatus('aim', cameraLive() ? 'Aim at the screen and hold steady' : 'Start the camera now');
+        if (cameraLive()) setStatus('aim', 'Aim at the screen', 'Hold steady until the answers appear');
+        else setStatus('aim', 'Start the camera now');
         runBar(event.leadMs || 5000);
       } else if (event.kind === 'start') {
         block = event;
@@ -1067,13 +1146,13 @@ output{color:#fff}
             try {
               onFrame(e.data);
             } catch (error) {
-              setStatus('error', `Helper error: ${error.message}`);
+              setStatus('error', 'Helper error', error.message);
             }
           });
         }
         if (tapped.has(this)) onFrame(data);
       } catch (error) {
-        setStatus('error', `Helper error: ${error.message}`);
+        setStatus('error', 'Helper error', error.message);
       }
       return originalSend.apply(this, arguments);
     };
@@ -1097,7 +1176,13 @@ output{color:#fff}
 
     // ---------- Settings ----------
 
+    let leaving = null; // The sheet's slide down.
+
     function openSettings() {
+      if (leaving) {
+        leaving.cancel();
+        leaving = null;
+      }
       root.querySelectorAll('[data-k]').forEach((field) => {
         const key = field.dataset.k;
         const fallback = key.endsWith('-model') ? PROVIDERS[key.split('-')[0]].model : key === 'first' ? FIRST_PROVIDER : '';
@@ -1108,10 +1193,21 @@ output{color:#fff}
       $('.thresholdOut').textContent = `${range.value}%`;
       showLogCount();
       sheet.hidden = false;
+      sheet.scrollTop = 0;
       sheet.focus({ preventScroll: true });
     }
     function closeSettings() {
-      sheet.hidden = true;
+      if (leaving) return; // A second tap on Done must not restart the slide.
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        sheet.hidden = true;
+      } else {
+        leaving = sheet.animate([{ transform: 'none' }, { transform: 'translateY(100%)' }], { duration: 200, easing: 'cubic-bezier(.32,.72,0,1)', fill: 'forwards' });
+        leaving.onfinish = () => {
+          sheet.hidden = true;
+          leaving.cancel();
+          leaving = null;
+        };
+      }
       if (!run || run.over) idleStatus();
       if (!stream && providerOrder().length) startCamera(); // The camera is the next thing the helper needs, so this saves a tap.
     }
@@ -1176,7 +1272,7 @@ output{color:#fff}
           `${provider}, ${model}, ${Date.now() - started} ms`,
           `Question: ${verdict.question || '(not read)'}`,
           ...lines,
-          decision.tile ? `Pick: ${TILES[decision.tile].label}, ${decision.state} ${shownPct(decision.confidence)}${decision.source === 'notes' ? ', from notes' : ''}` : 'Pick: none. The AI could not read it.',
+          decision.tile ? `Pick: ${TILES[decision.tile].label}, ${decision.state} ${Math.min(decision.confidence, MAX_SHOWN_CONFIDENCE)}%${decision.source === 'notes' ? ', from notes' : ''}` : 'Pick: none. The AI could not read it.',
         ].join('\n');
       } catch (e) {
         resultEl.textContent = e.camera ? `The camera is off. ${CAMERA_HELP}` : `Failed: ${e.message}`;

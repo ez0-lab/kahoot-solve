@@ -31,9 +31,9 @@ output{display:block;margin-top:12px;text-align:center;font-weight:600}
 <body>
 <main>
   <h1>Camera check</h1>
-  <p>Lists what your iPhone’s back cameras can do, so the helper only offers 0.5× if it is real. Sit where you sit in a game, point at the screen, then tap Run check. It takes about a minute. Nothing leaves this phone unless you share the file.</p>
+  <p>Sit where you sit in a game, point at the screen and tap Run check. It takes about a minute, and nothing leaves this phone unless you share the file.</p>
   <button class="main" id="run" type="button">Run check</button>
-  <video playsinline muted autoplay></video>
+  <video playsinline muted autoplay hidden></video>
   <pre id="out"></pre>
 
   <section id="session" hidden>
@@ -68,6 +68,7 @@ async function openCamera(video) {
   if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
   stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: video });
   preview.srcObject = stream;
+  preview.hidden = false;
   await preview.play().catch(function () {});
   for (var i = 0; i < 40 && !preview.videoWidth; i++) await sleep(50);
   return stream.getVideoTracks()[0];
