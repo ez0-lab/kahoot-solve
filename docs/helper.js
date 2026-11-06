@@ -14,22 +14,24 @@
   const TILE_NAMES = Object.keys(TILES);
 
   const PROVIDERS = {
-    gemini: { label: 'Gemini', model: 'gemini-3.5-flash-lite' },
-    groq: { label: 'Groq', model: 'qwen/qwen3.8-27b' },
+    gemini: { model: 'gemini-3.5-flash-lite' },
+    groq: { model: 'qwen/qwen3.8-27b' },
   };
-  // Groq says it keeps no inference data by default. Google's free tier can use photos to improve its products,
+  // Groq says it keeps no inference data by default, with logs for up to 30 days. Google's free tier can use photos to improve its products,
   // and Kahoot's Acceptable Use Policy forbids improving an AI model with its content, so Gemini is only a backup.
   const FIRST_PROVIDER = 'groq';
 
-  const CONFIDENT_AT = 80; // Calibrate with tools/compare-models.mjs. The pass bar is 90% correct when confident.
+  const CONFIDENT_AT = 80; // Not calibrated: in tools/results/compare.md every threshold from 50 to 95 gives the same boxes, and the real game had no answer below 90. The pass bar is 90% correct when confident.
   const NOTES_CONFIDENCE = 90;
   const CAPPED_CONFIDENCE = 40; // A partial read or a private fact cannot honestly claim more than this.
+  const MAX_SHOWN_CONFIDENCE = 95; // Real game, reveal frames: the model said 100% five times and was wrong twice, so the screen never says 100%.
   const CAPTURE_DELAY_MS = 120; // The host shows the tiles before the phone gets its buttons (a-default video, 5 fps).
   const BURST = 3;
   const BURST_GAP_MS = 70;
   const MAX_SIDE = 1280;
   const JPEG_QUALITY = 0.8;
-  const MAX_ATTEMPTS = 3;
+  // Three spent 198,666 of Groq's 200,000 daily tokens in the worst 60 s game on the fake server, so nothing else fit that day. The real game never needed a second try.
+  const MAX_ATTEMPTS = 2;
   const RETRY_GAP_MS = 250;
   const MIN_REMAINING_MS = 2500; // Below this a new call cannot return in time for a tap.
   const CALL_TIMEOUT_MS = 6000;
@@ -50,6 +52,7 @@ JSON fields:
 - "readable": true only if you can read the question and every tile. Use false if anything needed is cut off, hidden or too blurry.
 - "question": the question exactly as shown, in its own language. Use a short description if it is only an image.
 - "answers": an object with the keys red, blue, yellow, green, only for tiles that exist. Each value is the exact tile text, or a short description of its image.
+- "work": for math or logic, work it out here before choosing, in at most three short lines. Apply the order of operations, test the tiles against the question, and check the result. Use an empty string for any other question.
 - "best": the key of the tile most likely to be correct. Give your best guess even when readable is false, and use null only if you can see no quiz at all.
 - "confidence": integer from 0 to 100, your honest probability that "best" is correct. A blind guess is 25 with 4 tiles and 50 with 2. Use 95 or more only if you are certain of the fact.
 - "personal": true if the answer depends on private facts about a person or group that a stranger cannot know, such as a friend's favourite food.`;
@@ -145,14 +148,12 @@ JSON fields:
 
   function buildRequest(provider, model, key, jpegBase64, thinking) {
     if (provider === 'gemini') {
-      // Gemini 3.8 Flash has no "minimal" level (AI Studio thinking docs). Its lowest level is "low".
-      const level = thinking || (/^gemini-3\.8/.test(model) ? 'low' : 'minimal');
       return {
         url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
         headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
         body: {
           contents: [{ role: 'user', parts: [{ inlineData: { mimeType: 'image/jpeg', data: jpegBase64 } }, { text: PROMPT }] }],
-          generationConfig: { responseMimeType: 'application/json', thinkingConfig: { thinkingLevel: level } },
+          generationConfig: { responseMimeType: 'application/json', thinkingConfig: { thinkingLevel: thinking || 'minimal' } },
         },
       };
     }
@@ -194,7 +195,7 @@ JSON fields:
     const best = TILE_NAMES.find((n) => said.includes(n) || said.includes(TILES[n].shape)) || null;
     const answers = {};
     for (const n of TILE_NAMES) {
-      if (raw.answers && raw.answers[n] !== undefined && raw.answers[n] !== null) answers[n] = String(raw.answers[n]);
+      if (raw.answers && raw.answers[n] !== undefined && raw.answers[n] !== null) answers[n] = String(raw.answers[n]).trim(); // Worst-case test: a blank tile showed a green box at 100%.
     }
     let confidence = Number(raw.confidence);
     if (!isFinite(confidence)) confidence = 0;
@@ -203,10 +204,46 @@ JSON fields:
       readable: raw.readable === true && best !== null,
       question: String(raw.question || ''),
       answers,
+      work: String(raw.work || ''), // Only for the log, so the next miss can be told apart as reading or reasoning.
       best,
       confidence: Math.round(Math.max(0, Math.min(100, confidence))),
       personal: raw.personal === true,
     };
+  }
+
+  // A 429 body names the limit. Only a daily limit is worth leaving the provider for; a per-minute one refills.
+  // Groq: "on input tokens per minute (ITPM): Limit 7000, Used 5497, Requested 2482. Please try again in 8.39s."
+  // Gemini: a quotaId such as GenerateRequestsPerDayPerProjectPerModel-FreeTier, and "Please retry in 15.3s."
+  function parseLimit(body) {
+    const text = String(body || '');
+    const numbers = /Limit (\d+), Used (\d+), Requested (\d+)/.exec(text);
+    const groqWait = /try again in ((?:[\d.]+(?:ms|h|m|s))+)/.exec(text);
+    const geminiWait = /retry in ([\d.]+)s|retryDelay"?\s*:\s*"([\d.]+)s/i.exec(text);
+    const daily = /per[- ]day|PerDay/i.test(text);
+    let waitMs = null;
+    if (groqWait) {
+      waitMs = 0;
+      for (const [, n, unit] of groqWait[1].matchAll(/([\d.]+)(ms|h|m|s)/g)) waitMs += Number(n) * { ms: 1, s: 1000, m: 60000, h: 3600000 }[unit];
+    } else if (geminiWait && !daily) { // Gemini's daily refusal also says "retry in 15.3s", but its daily count only resets at midnight Pacific.
+      waitMs = Number(geminiWait[1] || geminiWait[2]) * 1000;
+    }
+    return {
+      daily,
+      unit: (/\(([A-Z]+)\):/.exec(text) || [])[1] || null,
+      limit: numbers ? Number(numbers[1]) : null,
+      used: numbers ? Number(numbers[2]) : null,
+      requested: numbers ? Number(numbers[3]) : null,
+      waitMs,
+    };
+  }
+
+  function usageOf(provider, json) {
+    if (provider === 'gemini') {
+      const u = json.usageMetadata || {};
+      return { in: u.promptTokenCount, out: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0) };
+    }
+    const u = json.usage || {};
+    return { in: u.prompt_tokens, out: u.completion_tokens };
   }
 
   async function callModel(provider, model, key, jpegBase64, timeoutMs, thinking) {
@@ -216,12 +253,18 @@ JSON fields:
     try {
       const response = await fetch(request.url, { method: 'POST', headers: request.headers, body: JSON.stringify(request.body), signal: abort.signal });
       if (!response.ok) {
+        const body = await response.text();
         const error = new Error(`HTTP ${response.status}`);
         error.status = response.status;
-        error.detail = (await response.text()).slice(0, 400);
+        error.detail = body.replace(/org_\w+/g, 'org_REDACTED').slice(0, 400); // The log gets exported, and it has no use for the account id.
+        error.limit = response.status === 429 ? parseLimit(body) : null;
+        // Groq answers 400 json_validate_failed for one bad reply (real diagnosis, 4 times), so that says nothing about the key.
+        error.rejected = REJECTED.includes(response.status) && !body.includes('json_validate_failed');
+        error.headers = Object.fromEntries(response.headers); // A browser only sees what the provider exposes. The log shows what that is.
         throw error;
       }
-      return parseVerdict(replyText(provider, await response.json()));
+      const json = await response.json();
+      return Object.assign(parseVerdict(replyText(provider, json)), { usage: usageOf(provider, json) });
     } finally {
       clearTimeout(timer);
     }
@@ -257,6 +300,12 @@ JSON fields:
     return best;
   }
 
+  // A tile left empty was cut off or unread, whatever the model claims. Real game: red and yellow empty, "readable": true, 100%, wrong.
+  function readEveryTile(verdict, tiles) {
+    const names = tiles && tiles.length ? tiles : Object.keys(verdict.answers);
+    return verdict.readable && names.every((t) => verdict.answers[t]);
+  }
+
   function decide(verdict, notes, threshold, tiles) {
     const allowed = (t) => !tiles || !tiles.length || tiles.includes(t);
     if (!verdict || !verdict.best || !allowed(verdict.best)) return { state: 'unreadable', tile: null, confidence: 0, source: 'none' };
@@ -264,7 +313,7 @@ JSON fields:
       const hit = matchNotes(verdict.question, verdict.answers, notes);
       if (hit && allowed(hit.tile)) return { state: 'confident', tile: hit.tile, confidence: NOTES_CONFIDENCE, source: 'notes', note: hit.line };
     }
-    const capped = !verdict.readable || verdict.personal;
+    const capped = !readEveryTile(verdict, tiles) || verdict.personal;
     const confidence = capped ? Math.min(verdict.confidence, CAPPED_CONFIDENCE) : verdict.confidence;
     return { state: confidence >= threshold ? 'confident' : 'unsure', tile: verdict.best, confidence, source: 'model' };
   }
@@ -296,7 +345,7 @@ JSON fields:
   }
 
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { TILES, PROVIDERS, PROMPT, CONFIDENT_AT, REJECTED, CALL_TIMEOUT_MS, fold, parseFrame, isSingleChoice, tileOfButton, buildRequest, replyText, parseVerdict, callModel, matchNotes, decide, cropRect, sharpness };
+    module.exports = { TILES, PROMPT, REJECTED, CALL_TIMEOUT_MS, parseFrame, isSingleChoice, tileOfButton, buildRequest, replyText, parseVerdict, parseLimit, matchNotes, decide, cropRect, sharpness };
     return;
   }
 
@@ -332,7 +381,7 @@ JSON fields:
 :host{all:initial}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 .ui{font:600 15px/1.3 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#f5f5f7;-webkit-text-size-adjust:100%}
-button{font:inherit;color:inherit;border:0;background:none;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;cursor:pointer;transition:transform 100ms cubic-bezier(.23,1,.32,1),background-color 100ms ease-out}
+button{font:inherit;color:inherit;border:0;background:none;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;cursor:pointer;transition:transform 100ms cubic-bezier(.23,1,.32,1)}
 button:active{transform:scale(.97)}
 button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid #7cb7ff;outline-offset:2px}
 
@@ -352,9 +401,12 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 
 .status{flex:1 1 auto;min-width:0;padding:0 6px}
 .hud[data-kind=confident] .status{color:#5dfc9d}
-.hud[data-kind=unsure] .status{color:#ffd54f}
+.hud[data-kind=unsure] .status,.hud[data-kind=limit] .status{color:#ffd54f}
+.hud[data-kind=limit] .bar{background:#ffd54f}
 .hud[data-kind=error] .status,.hud[data-kind=unreadable] .status{color:#ff9d94}
+/* Reading breathes slowly, and a retry three times as fast because the player has something to do: hold steady. */
 .hud[data-kind=reading] .status{animation:pulse 900ms ease-in-out infinite alternate}
+.hud[data-kind=retry] .status{animation:pulse 300ms ease-in-out infinite alternate}
 @keyframes pulse{to{opacity:.55}}
 
 .cam{flex:none;min-height:36px;padding:0 14px;border-radius:10px;background:#fff;color:#111}
@@ -362,18 +414,22 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .gear{flex:none;display:grid;place-items:center;width:36px;height:36px;border-radius:10px;color:#c9c9d2}
 .gear svg{width:21px;height:21px}
 
-.mark{position:fixed;z-index:2;display:flex;align-items:flex-end;justify-content:center;padding:10px;border-radius:6px;pointer-events:none;animation:appear 120ms ease-out}
+.mark{position:fixed;z-index:2;top:0;left:0;display:flex;align-items:flex-end;justify-content:center;padding:10px;border-radius:6px;pointer-events:none;animation:appear 120ms cubic-bezier(.23,1,.32,1)}
 @keyframes appear{from{opacity:0}}
+/* A confident box lands. An unsure one only fades in and its dashed frame keeps breathing. The text stays still in both, and both take the same 120 ms as before. */
+.mark.ok{animation-name:land}
+@keyframes land{from{opacity:0;transform:scale(.97)}}
 /* The fill must read as green on all four tile colours, including the green tile, so the white border and glow do the rest. */
 .mark.ok{background:rgba(0,220,110,.62);border:4px solid #fff;box-shadow:0 0 0 3px #00e676}
 /* A white dashed border stays visible on the yellow tile, where an amber one would not. */
-.mark.maybe{background:rgba(255,179,0,.3);border:4px dashed #fff}
+.mark.maybe{padding:14px;background:rgba(255,179,0,.3)}
+.mark.maybe::after{content:"";position:absolute;inset:0;border:4px dashed #fff;border-radius:inherit;animation:pulse 900ms ease-in-out infinite alternate}
 .mark.dim{background:rgba(0,0,0,.6)}
-.text{max-width:100%;padding:4px 10px;border-radius:9px;background:rgba(0,0,0,.7);color:#fff;font-size:17px;font-weight:700;line-height:1.25;text-align:center;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow-wrap:anywhere}
+.text{max-width:100%;padding:4px 10px;border-radius:9px;background:rgba(0,0,0,.7);color:#fff;font-size:17px;font-weight:700;line-height:1.25;text-align:center;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--lines,5);overflow-wrap:anywhere} /* Real game: 10 of 28 tiles ran over 42 characters, and three lines cut them. */
 .pct{position:absolute;top:7px;right:7px;padding:2px 8px;border-radius:9px;background:#fff;color:#0a0a0a;font-size:14px}
 .mark.maybe .pct{background:#ffd54f}
 
-.sheet{position:fixed;z-index:4;top:0;left:0;right:0;bottom:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:0 16px calc(env(safe-area-inset-bottom,0px) + 28px);background:#101015;font-weight:400;pointer-events:auto}
+.sheet{position:fixed;z-index:4;top:0;left:0;right:0;bottom:0;overflow-y:auto;overscroll-behavior:contain;padding:0 16px calc(env(safe-area-inset-bottom,0px) + 28px);background:#101015;font-weight:400;pointer-events:auto}
 .sheet[hidden]{display:none}
 .sheet:focus{outline:none}
 .inner{max-width:520px;margin:0 auto}
@@ -393,7 +449,7 @@ p{margin:8px 0 0;font-size:14px;line-height:1.45;color:#a2a2ad}
 .btn{display:block;width:100%;min-height:46px;margin-top:10px;padding:0 14px;border-radius:12px;background:#26262f;font-weight:600}
 .btn.primary,.done{background:#fff;color:#0d0d10}
 .done{min-height:38px;padding:0 16px;border-radius:10px;font-weight:600}
-.seg{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:6px}
 .seg button{min-height:44px;border-radius:10px;background:#26262f;font-weight:600}
 .seg button[aria-pressed=true]{background:#fff;color:#0d0d10}
 .shot{display:block;width:100%;margin-top:12px;border-radius:10px}
@@ -407,15 +463,16 @@ output{color:#fff}
   .gear:hover{background:rgba(255,255,255,.1)}
 }
 @media (prefers-reduced-motion:reduce){
-  .mark{animation:none}
-  .hud[data-kind=reading] .status{animation:none}
+  button{transition:none}
+  .mark.ok{animation-name:appear}
+  .mark.maybe::after,.hud[data-kind=reading] .status,.hud[data-kind=retry] .status{animation:none}
 }`;
 
   const GEAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.9 2.9l-.1-.1a1.7 1.7 0 0 0-2.8 1.2V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.9-2.9l.1-.1a1.7 1.7 0 0 0-1.2-2.8H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.9-2.9l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.9 2.9l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
 
   // A text field with hidden dots, because a password field makes iOS offer to save and fill passwords here.
   const field = (key, label, secret) => `<label>${label}<input data-k="${key}" type="text"${secret ? ' class="secret"' : ''} autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done"></label>`;
-  const ZOOMS = '<div class="seg"><button type="button" data-z="1">1×</button><button type="button" data-z="1.5">1.5×</button><button type="button" data-z="2">2×</button><button type="button" data-z="3">3×</button></div>';
+  const ZOOMS = '<div class="seg"><button type="button" data-z="0.5" hidden>0.5×</button><button type="button" data-z="1">1×</button><button type="button" data-z="1.5">1.5×</button><button type="button" data-z="2">2×</button><button type="button" data-z="3">3×</button></div>';
 
   const MARKUP = `
 <div class="ui">
@@ -489,12 +546,12 @@ output{color:#fff}
     const shotEl = $('.shot');
     const resultEl = $('.result');
 
-    const setting = (key, fallback) => store.get(key, fallback);
-    const threshold = () => Number(setting('threshold', String(CONFIDENT_AT)));
+    const threshold = () => Number(store.get('threshold', String(CONFIDENT_AT)));
+    const shownPct = (confidence) => `${Math.min(confidence, MAX_SHOWN_CONFIDENCE)}%`;
 
     function setStatus(kind, text) {
       hud.dataset.kind = kind;
-      statusEl.textContent = text;
+      if (statusEl.textContent !== text) statusEl.textContent = text; // A live region must not hear the same words ten times a second.
     }
 
     // ---------- Log. Every line is written before the reveal it predicts, and tools read the export. ----------
@@ -537,6 +594,10 @@ output{color:#fff}
 
     let stream = null;
     let softZoom = 1;
+    let lens = null; // A deviceId, or null for the browser's default back camera.
+    let ultraLens = null; // Only a lens the phone itself names as ultra wide.
+    let badLens = null; // A lens that refused to start, which must not be offered again.
+    let cameraStarts = 0;
     let wakeLock = null;
     const canvases = Array.from({ length: BURST }, () => document.createElement('canvas'));
     const probe = document.createElement('canvas');
@@ -563,7 +624,7 @@ output{color:#fff}
       if (!cameraLive()) {
         camButton.hidden = false;
         setStatus('idle', '');
-      } else if (!setting('gemini-key', '') && !setting('groq-key', '')) {
+      } else if (!store.get('gemini-key', '') && !store.get('groq-key', '')) {
         setStatus('error', 'Add a free AI key');
       } else {
         setStatus('idle', 'Ready');
@@ -575,39 +636,75 @@ output{color:#fff}
         setStatus('error', 'No camera here. Use Safari.');
         return;
       }
+      const thisStart = ++cameraStarts; // Two quick zoom taps overlap here, and the older lens can open last.
+      if (stream) stream.getTracks().forEach((t) => t.stop()); // An iPhone runs one camera at a time.
+      let opened;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
+        // 4:3, because a phone held upright keeps a third more width in the same 16:9 crop as a 16:9 stream gives.
+        opened = await navigator.mediaDevices.getUserMedia({
           audio: false,
-          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          video: { ...(lens ? { deviceId: { exact: lens } } : { facingMode: { ideal: 'environment' } }), width: { ideal: 1920 }, height: { ideal: 1440 } },
         });
       } catch (e) {
+        if (thisStart !== cameraStarts) return;
+        // ponytail: any failure retires the lens until a reload. Retry once if the iPhone report shows 0.5× going away by itself.
+        if (lens) { // The ultra wide lens failed, so the default one takes over and 0.5× goes away.
+          badLens = lens;
+          lens = null;
+          return startCamera();
+        }
         setStatus('error', e.name === 'NotAllowedError' ? `Camera blocked. ${CAMERA_HELP}` : `Camera failed: ${e.name}`);
         return;
       }
+      if (thisStart !== cameraStarts) {
+        opened.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      stream = opened;
       video.srcObject = stream;
       vf.hidden = false; // iOS stops decoding a hidden video, so the viewfinder stays on screen.
       camButton.hidden = true;
       await video.play().catch(() => {});
       stream.getVideoTracks()[0].addEventListener('ended', idleStatus);
-      applyZoom(Number(setting('zoom', '1')));
+      await findWideOption();
+      applyZoom(Number(store.get('zoom', '1')));
       keepAwake();
       idleStatus();
     }
 
+    const trackCapabilities = (track) => (track && track.getCapabilities ? track.getCapabilities() : {});
+
+    // 0.5× appears only for a real lens or a real zoom range. A crop can only narrow the view, so nothing can fake it.
+    async function findWideOption() {
+      const devices = navigator.mediaDevices.enumerateDevices ? await navigator.mediaDevices.enumerateDevices().catch(() => []) : [];
+      const ultra = devices.find((d) => d.kind === 'videoinput' && /ultra/i.test(d.label) && d.deviceId !== badLens);
+      ultraLens = ultra ? ultra.deviceId : null;
+      const range = trackCapabilities(stream.getVideoTracks()[0]).zoom;
+      root.querySelectorAll('[data-z="0.5"]').forEach((b) => { b.hidden = !(ultraLens || (range && range.min <= 0.5)); });
+    }
+
     // Optical zoom keeps more detail than a crop, so the crop is only the fallback.
-    async function applyZoom(zoom) {
+    async function applyZoom(asked) {
+      const track = stream && stream.getVideoTracks()[0];
+      const range = trackCapabilities(track).zoom;
+      const needsLens = asked < 1 && !(range && range.min <= asked);
+      const zoom = track && needsLens && !ultraLens ? 1 : asked; // A saved 0.5× on a phone that cannot do it.
       store.set('zoom', String(zoom));
       root.querySelectorAll('[data-z]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.z) === zoom)));
-      softZoom = zoom;
-      const track = stream && stream.getVideoTracks()[0];
-      const capabilities = track && track.getCapabilities ? track.getCapabilities() : {};
-      if (capabilities.zoom) {
-        const wanted = Math.min(capabilities.zoom.max, Math.max(capabilities.zoom.min, zoom));
+      const wantedLens = zoom >= 1 ? null : needsLens ? ultraLens : lens; // Stay on a lens that can do it, or two lenses would keep handing over.
+      if (track && wantedLens !== lens) {
+        lens = wantedLens;
+        await startCamera(); // It comes back here with the new lens.
+        return;
+      }
+      softZoom = Math.max(1, zoom);
+      if (range) {
+        const wanted = Math.min(range.max, Math.max(range.min, zoom));
         try {
           await track.applyConstraints({ advanced: [{ zoom: wanted }] });
           softZoom = Math.max(1, zoom / (track.getSettings().zoom || 1));
         } catch (e) {
-          softZoom = zoom;
+          softZoom = Math.max(1, zoom);
         }
       }
       video.style.transform = softZoom > 1 ? `scale(${softZoom})` : '';
@@ -645,20 +742,30 @@ output{color:#fff}
     // ---------- AI ----------
 
     function providerOrder() {
-      const first = setting('first', FIRST_PROVIDER);
+      const first = store.get('first', FIRST_PROVIDER);
       return [first].concat(Object.keys(PROVIDERS).filter((p) => p !== first))
-        .map((name) => ({ name, key: setting(`${name}-key`, '').trim(), model: setting(`${name}-model`, '').trim() || PROVIDERS[name].model }))
+        .map((name) => ({ name, key: store.get(`${name}-key`, '').trim(), model: store.get(`${name}-model`, '').trim() || PROVIDERS[name].model }))
         .filter((p) => p.key);
     }
 
-    async function askAny(dataUrl, timeoutMs) {
+    const offUntil = {}; // A daily limit takes a provider out until the time its own reply states.
+
+    // A per-minute refusal costs nothing and its stated wait is honest (real burst in tools/diagnose.mjs), so while the
+    // question has that time this returns waitMs for the caller to wait out. Any other failure moves to the next provider.
+    async function askAny(dataUrl, timeoutMs, deadline, onlyProvider) {
       const failures = [];
-      for (const p of providerOrder()) {
+      for (const p of providerOrder().filter((o) => !onlyProvider || o.name === onlyProvider)) {
+        if (Date.now() < (offUntil[p.name] || 0)) {
+          failures.push({ provider: p.name, status: 429, skipped: true });
+          continue;
+        }
         try {
           const verdict = await callModel(p.name, p.model, p.key, dataUrl.slice(dataUrl.indexOf(',') + 1), timeoutMs);
           return { verdict, provider: p.name, model: p.model, failures };
         } catch (e) {
-          failures.push({ provider: p.name, status: e.status || e.name, detail: e.detail });
+          failures.push({ provider: p.name, status: e.status || e.name, detail: e.detail, limit: e.limit, rejected: e.rejected, headers: e.headers });
+          if (e.limit && e.limit.daily) offUntil[p.name] = Date.now() + (e.limit.waitMs || 3600000);
+          else if (e.limit && e.limit.waitMs !== null && e.limit.waitMs + MIN_REMAINING_MS <= deadline - Date.now()) return { verdict: null, provider: null, model: null, failures, waitMs: e.limit.waitMs };
         }
       }
       return { verdict: null, provider: null, model: null, failures };
@@ -666,9 +773,9 @@ output{color:#fff}
 
     function failureText(failures) {
       if (!failures.length) return 'Add a free AI key';
-      const statuses = failures.map((f) => f.status);
-      if (statuses.includes(429)) return 'Free AI limit reached. Guess now.';
-      if (statuses.some((s) => REJECTED.includes(s))) return 'AI key or model rejected. Guess now.';
+      if (failures.some((f) => f.skipped || (f.limit && f.limit.daily))) return 'Free AI used up for today. Guess now.';
+      if (failures.some((f) => f.status === 429)) return 'Free AI limit reached. Guess now.';
+      if (failures.some((f) => f.rejected)) return 'AI key or model rejected. Guess now.';
       return 'AI not responding. Guess now.';
     }
 
@@ -698,7 +805,7 @@ output{color:#fff}
           div.className = `mark ${suggestion.state === 'confident' ? 'ok' : 'maybe'}`;
           const pct = document.createElement('div');
           pct.className = 'pct';
-          pct.textContent = suggestion.source === 'notes' ? '✓ notes' : `${suggestion.state === 'confident' ? '✓' : '?'} ${suggestion.confidence}%`;
+          pct.textContent = suggestion.source === 'notes' ? 'notes' : `${suggestion.state === 'confident' ? '' : '? '}${shownPct(suggestion.confidence)}`;
           div.appendChild(pct);
           if (suggestion.text) {
             const text = document.createElement('div');
@@ -716,19 +823,25 @@ output{color:#fff}
       }).filter(Boolean);
     }
 
-    // The buttons animate in and move with rotation, so the marks follow them every frame.
+    // The buttons animate in and move with rotation, so the marks check them every frame. Every read comes before any
+    // write, or each write would force a layout for the next read, and a button that has not moved costs no write at all.
     function followButtons() {
       frameRequest = null;
       if (!suggestion) return;
       frameRequest = requestAnimationFrame(followButtons);
       if (!marks.length || marks.some((m) => !m.el.isConnected)) buildMarks();
-      for (const m of marks) {
-        const r = m.el.getBoundingClientRect();
-        m.div.style.left = `${r.left}px`;
-        m.div.style.top = `${r.top}px`;
-        m.div.style.width = `${r.width}px`;
-        m.div.style.height = `${r.height}px`;
-      }
+      const rects = marks.map((m) => m.el.getBoundingClientRect());
+      marks.forEach((m, i) => {
+        const r = rects[i];
+        if (r.left !== m.x || r.top !== m.y) m.div.style.translate = `${r.left}px ${r.top}px`;
+        if (r.width !== m.w) m.div.style.width = `${r.width}px`;
+        if (r.height !== m.h) {
+          m.div.style.height = `${r.height}px`;
+          // A short tile keeps its percent readable: 56 px goes to the percent chip and the padding, and a line of text takes 21.25 px.
+          m.div.style.setProperty('--lines', Math.min(5, Math.max(1, Math.floor((r.height - 56) / 21.25))));
+        }
+        Object.assign(m, { x: r.left, y: r.top, w: r.width, h: r.height });
+      });
     }
 
     function clearMarks() {
@@ -757,11 +870,15 @@ output{color:#fff}
     async function readQuestion(current) {
       setStatus('reading', 'Reading…');
       await sleep(CAPTURE_DELAY_MS);
-      let result = { verdict: null, provider: null, model: null, failures: [] };
+      const deadline = current.startedAt + current.limitMs;
+      const failures = [];
+      const usages = [];
+      let result = { verdict: null, provider: null, model: null, failures };
+      let answered = null; // A later refused call must not throw away the pick from an earlier unclear photo.
       let attempts = 0;
+      let waitedMs = 0;
       let shotAt = null;
       for (;;) {
-        attempts++;
         let dataUrl;
         try {
           dataUrl = await capture();
@@ -773,20 +890,38 @@ output{color:#fff}
         shotAt = Date.now();
         shotEl.src = dataUrl;
         shotEl.hidden = false;
-        const remaining = current.startedAt + current.limitMs - Date.now();
-        result = await askAny(dataUrl, Math.min(CALL_TIMEOUT_MS, Math.max(1500, remaining - 500)));
-        const readOk = result.verdict && result.verdict.readable && decide(result.verdict, '', 0, current.tiles()).state !== 'unreadable';
+        // A second read stays with the provider that answered, because a clearer photo is no reason to send it to another company.
+        result = await askAny(dataUrl, Math.min(CALL_TIMEOUT_MS, Math.max(1500, deadline - Date.now() - 500)), deadline, answered && answered.provider);
+        failures.push(...result.failures);
+        if (result.verdict) {
+          usages.push(result.verdict.usage);
+          answered = result;
+        }
+        if (result.waitMs !== undefined) {
+          const waitStart = Date.now();
+          if (current === run && !current.over) runBar(result.waitMs);
+          while (Date.now() < waitStart + result.waitMs && !current.over && current === run) {
+            setStatus('limit', `Free limit. Next try in ${Math.ceil((waitStart + result.waitMs - Date.now()) / 1000)} s`);
+            await sleep(100);
+          }
+          waitedMs += Date.now() - waitStart;
+          if (current.over || current !== run) break;
+          setStatus('reading', 'Reading…');
+          continue;
+        }
+        attempts++;
+        const readOk = result.verdict && readEveryTile(result.verdict, current.tiles()) && decide(result.verdict, '', 0, current.tiles()).state !== 'unreadable';
         // Each second costs 500/T points, and a read beats a blind guess until almost the end of the question.
         // Asking again cannot fix a rejected key or an exhausted free limit, and it would burn more of that limit.
-        const pointless = !result.verdict && result.failures.some((f) => f.status === 429 || REJECTED.includes(f.status));
-        const timeLeft = current.startedAt + current.limitMs - Date.now();
-        if (readOk || pointless || current.over || attempts >= MAX_ATTEMPTS || timeLeft < MIN_REMAINING_MS) break;
-        if (current === run) setStatus('reading', 'Hold steady, reading again…');
+        const pointless = !result.verdict && result.failures.some((f) => f.status === 429 || f.rejected);
+        if (readOk || pointless || current.over || attempts >= MAX_ATTEMPTS || deadline - Date.now() < MIN_REMAINING_MS) break;
+        if (current === run) setStatus('retry', 'Hold steady, reading again…');
         await sleep(RETRY_GAP_MS);
       }
+      if (answered) result = answered;
 
       const tiles = current.tiles();
-      const decision = decide(result.verdict, setting('notes', ''), threshold(), tiles);
+      const decision = decide(result.verdict, store.get('notes', ''), threshold(), tiles);
       const doneAt = Date.now();
       const target = answerButtons().find((b) => b.tile === decision.tile);
       log({
@@ -804,9 +939,11 @@ output{color:#fff}
         doneAt,
         latencyMs: doneAt - current.startedAt,
         attempts,
+        waitedMs,
+        usages,
         provider: result.provider,
         model: result.model,
-        failures: result.failures.length ? result.failures : undefined,
+        failures: failures.length ? failures : undefined,
         verdict: result.verdict,
         state: decision.state,
         tile: decision.tile,
@@ -825,8 +962,8 @@ output{color:#fff}
         setStatus('unreadable', 'Can’t read it. Guess now.');
       } else {
         const tile = TILES[decision.tile];
-        const how = decision.source === 'notes' ? 'from notes' : decision.state === 'confident' ? `${decision.confidence}%` : `unsure ${decision.confidence}%`;
-        setStatus(decision.state, `${decision.state === 'confident' ? '✓' : '?'} ${tile.symbol} ${tile.label} · ${how}`);
+        const how = decision.source === 'notes' ? 'from notes' : decision.state === 'confident' ? shownPct(decision.confidence) : `unsure ${shownPct(decision.confidence)}`;
+        setStatus(decision.state, `${decision.state === 'confident' ? '' : '? '}${tile.symbol} ${tile.label} · ${how}`);
         showSuggestion(decision, result.verdict);
       }
     }
@@ -860,6 +997,14 @@ output{color:#fff}
       hud.classList.remove('playing');
     }
 
+    function runBar(ms) {
+      bar.style.transition = 'none';
+      bar.style.transform = 'scaleX(1)';
+      void bar.offsetWidth;
+      bar.style.transition = `transform ${ms}ms linear`;
+      bar.style.transform = 'scaleX(0)';
+    }
+
     function onGameEvent(event) {
       if (event.kind === 'ready') {
         block = event;
@@ -867,11 +1012,7 @@ output{color:#fff}
         endQuestion(); // A missed reveal frame must not let the last question's reply draw over this one.
         hud.classList.add('aim');
         setStatus('aim', cameraLive() ? 'Aim at the screen and hold steady' : 'Start the camera now');
-        bar.style.transition = 'none';
-        bar.style.transform = 'scaleX(1)';
-        void bar.offsetWidth;
-        bar.style.transition = `transform ${event.leadMs || 5000}ms linear`;
-        bar.style.transform = 'scaleX(0)';
+        runBar(event.leadMs || 5000);
       } else if (event.kind === 'start') {
         block = event;
         log({ ev: 'start', index: event.index, layout: event.layout, type: event.type, choices: event.choices, limitMs: event.limitMs, remainingMs: event.remainingMs, resumed: event.resumed });
@@ -940,7 +1081,7 @@ output{color:#fff}
       root.querySelectorAll('[data-k]').forEach((field) => {
         const key = field.dataset.k;
         const fallback = key.endsWith('-model') ? PROVIDERS[key.split('-')[0]].model : key === 'first' ? FIRST_PROVIDER : '';
-        field.value = setting(key, fallback);
+        field.value = store.get(key, fallback);
       });
       const range = $('.threshold');
       range.value = String(threshold());
@@ -984,18 +1125,18 @@ output{color:#fff}
         const dataUrl = await capture();
         shotEl.src = dataUrl;
         shotEl.hidden = false;
-        const { verdict, provider, model, failures } = await askAny(dataUrl, 15000);
+        const { verdict, provider, model, failures } = await askAny(dataUrl, 15000, 0);
         if (!verdict) {
           resultEl.textContent = `${failureText(failures)}\n${JSON.stringify(failures, null, 1)}`;
           return;
         }
-        const decision = decide(verdict, setting('notes', ''), threshold());
+        const decision = decide(verdict, store.get('notes', ''), threshold());
         const lines = Object.keys(verdict.answers).map((t) => `${TILES[t].symbol} ${verdict.answers[t]}`);
         resultEl.textContent = [
           `${provider}, ${model}, ${Date.now() - started} ms`,
           `Question: ${verdict.question || '(not read)'}`,
           ...lines,
-          decision.tile ? `Pick: ${TILES[decision.tile].label}, ${decision.state} ${decision.confidence}%${decision.source === 'notes' ? ', from notes' : ''}` : 'Pick: none. The AI could not read it.',
+          decision.tile ? `Pick: ${TILES[decision.tile].label}, ${decision.state} ${shownPct(decision.confidence)}${decision.source === 'notes' ? ', from notes' : ''}` : 'Pick: none. The AI could not read it.',
         ].join('\n');
       } catch (e) {
         resultEl.textContent = e.camera ? `The camera is off. ${CAMERA_HELP}` : `Failed: ${e.message}`;
@@ -1015,9 +1156,9 @@ output{color:#fff}
     });
 
     window.__quizHelper = { openSettings };
-    applyZoom(Number(setting('zoom', '1')));
+    applyZoom(Number(store.get('zoom', '1')));
     idleStatus();
-    if (!setting('gemini-key', '') && !setting('groq-key', '')) openSettings();
+    if (!store.get('gemini-key', '') && !store.get('groq-key', '')) openSettings();
     // Safari only skips the camera prompt when the player set "Allow" for this site, so asking here is silent.
     if (navigator.permissions && navigator.permissions.query) {
       navigator.permissions.query({ name: 'camera' }).then((p) => {

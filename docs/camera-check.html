@@ -18,6 +18,7 @@ h2{margin:32px 0 4px;font-size:20px;line-height:1.25}
 p{margin:6px 0 0;color:var(--soft)}
 button{display:block;width:100%;min-height:50px;margin-top:12px;padding:0 18px;border:0;border-radius:13px;background:var(--quiet);color:var(--ink);font:600 17px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 button:disabled{opacity:.45}
+button:not(:disabled):active{opacity:.7}
 .main{background:var(--button);color:var(--button-ink)}
 video{display:block;width:100%;margin-top:12px;border-radius:10px;background:#000;aspect-ratio:16/9;object-fit:cover}
 pre{margin:12px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace}
@@ -120,7 +121,7 @@ async function check() {
     report.supported = navigator.mediaDevices.getSupportedConstraints ? navigator.mediaDevices.getSupportedConstraints() : null;
     report.devicesBeforePermission = (await navigator.mediaDevices.enumerateDevices()).map(function (d) { return { kind: d.kind, label: d.label }; });
     // The same request the helper makes, so this shows which lens a game really uses.
-    var track = await openCamera({ facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } });
+    var track = await openCamera({ facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1440 } });
     await sleep(900);
     report.helperDefault = Object.assign(facts(track), { photo: wholeFrame() });
     say('Helper default: ' + track.label + ' ' + preview.videoWidth + '×' + preview.videoHeight);

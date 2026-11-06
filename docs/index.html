@@ -62,7 +62,7 @@ code{display:block;margin-top:10px;padding:10px 12px;border-radius:10px;backgrou
       <a class="btn" href="https://aistudio.google.com/apikey">Google AI Studio, optional</a></li>
     <li><b>Paste the key</b>Open the game page. The settings open by themselves the first time. Paste the key, tap Done and allow the camera.
       <a class="btn" href="https://kahoot.it/">Open the game page</a></li>
-    <li><b>Stop the camera question</b>On the game page, tap the same icon, then Website Settings, then set Camera to Allow. The helper can then come back by itself after a reload.</li>
+    <li><b>Stop the camera question</b>On the game page, tap the same icon, then Website Settings, then set Camera to Allow. The helper can then come back by itself after a reload. This also lets the game page itself use the camera without asking, so set it back to Ask when you stop using the helper.</li>
   </ol>
 
   <h2>Practice without a game</h2>
@@ -82,11 +82,13 @@ code{display:block;margin-top:10px;padding:10px 12px;border-radius:10px;backgrou
     <li><span class="key" style="background:#00c766"></span><b>Green box:</b> the likely answer, with its text so you can check it against the screen.</li>
     <li><span class="key" style="background:#ffc233"></span><b>Amber box with a dashed border:</b> a best guess. Use your own judgement if you know better.</li>
     <li><b>Can’t read it:</b> guess right away. A wrong answer costs nothing, and a blank scores zero too.</li>
-    <li>The box never blocks your tap. It can be wrong, so read what it says.</li>
+    <li><b>Free limit. Next try in 12 s:</b> the free AI needs a short wait. Keep aiming at the screen and the box comes after it. If you know the answer, tap it now, because waiting costs points.</li>
+    <li><b>Free AI used up for today:</b> guess for the rest of the game. A 20-question game takes about a third of Groq’s free daily tokens, so two games a day fit and a third may not.</li>
+    <li>The box never blocks your tap. It can be wrong, so read what it says. The percent is the AI’s own estimate. In one real game, 2 of the 8 answers it rated 90% or higher were wrong.</li>
   </ul>
 
   <h2>No app? Use a bookmark</h2>
-  <p>Works without installing anything, but you tap it each time you open the game page.</p>
+  <p>Works without installing anything, but you tap it each time you open the game page. It needs iOS 14.5 or newer.</p>
   <ol>
     <li><b>Copy the code</b><code id="bookmarklet"></code>
       <button class="btn" id="copy" type="button">Copy the code</button></li>
@@ -97,9 +99,9 @@ code{display:block;margin-top:10px;padding:10px 12px;border-radius:10px;backgrou
 
   <h2>What leaves your phone</h2>
   <ul>
-    <li><b>Photos of the host’s screen</b> go to the AI company whose key you added. Groq says it does not keep inference data by default. Google’s free tier can use them to improve its products, and its reviewers may see them. That may break Kahoot’s rule against using its content to improve an AI model, so leave the Gemini key empty unless you accept that. Google’s terms also ask you to be 18 or older and not to send personal information, and a question about your friend on that screen counts. Keep people out of the frame.</li>
+    <li><b>Photos of the host’s screen</b> go to the AI company whose key you added. Groq says it does not keep inference data by default, though it can keep logs for up to 30 days to check reliability and abuse. Google’s free tier can use them to improve its products, and its reviewers may see them. That may break Kahoot’s rule against using its content to improve an AI model, so leave the Gemini key empty unless you accept that. Google’s terms also ask you to be 18 or older and not to send personal information, and a question about your friend on that screen counts. Keep people out of the frame.</li>
     <li><b>Your key</b> goes only to its own company. It is stored on the game page, where that site’s scripts could read it, so never use a key with billing on it.</li>
-    <li><b>Your notes</b> never leave the phone.</li>
+    <li><b>Your notes</b> are never sent anywhere by the helper. Like the key, they are stored on the game page, where that site’s scripts could read them.</li>
     <li>Nothing is sent to this site, and it has no tracking.</li>
   </ul>
 
