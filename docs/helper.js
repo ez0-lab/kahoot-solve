@@ -38,6 +38,9 @@
   const ANSWER_SELECTOR = '[data-functional-selector^="answer-"]';
   const REJECTED = [400, 401, 403, 404]; // The key or the model is wrong, so asking again cannot help.
   const CAMERA_HELP = 'Tap aA or the puzzle icon in the address bar, then Website Settings, and allow Camera.';
+  const PHOTO_TOKENS = 3466; // Measured in tools/results/compare.md: 1253 usage, 163 output and a flat 2050 that Groq adds for any photo, whatever its size or quality.
+  const BUDGET_PAD = 130000; // Tokens. Far over the 7000 a minute, so Groq can never accept it, and under the model's 131072 context, which answers with no numbers.
+  const BUDGET_HELP = 'A question uses one, or two if the first photo is unclear. About 2 more come back each hour.';
 
   const PROMPT = `You are reading a live quiz from a phone photo of the host's screen. Reply with JSON only.
 
@@ -237,6 +240,21 @@ JSON fields:
     };
   }
 
+  // A browser cannot read Groq's rate headers, but it can read a refusal. This asks for more than the day has left, so Groq refuses it
+  // free of charge and states what today has used. Digits count one token each. Newlines collapse, and 60000 of them were accepted.
+  function budgetRequest(model, key) {
+    const request = buildRequest('groq', model, key, '');
+    request.body = { model, max_completion_tokens: 1, messages: [{ role: 'user', content: '7'.repeat(BUDGET_PAD) }] };
+    return request;
+  }
+
+  function budgetText(status, body) {
+    const { daily, limit, used } = parseLimit(body);
+    if (daily && used !== null) return `About ${Math.floor(Math.max(0, limit - used) / PHOTO_TOKENS)} photos left on Groq today. ${BUDGET_HELP}`;
+    if (status === 413) return `More than ${Math.floor(BUDGET_PAD / PHOTO_TOKENS)} photos left on Groq today. ${BUDGET_HELP}`; // The day has room for all of it, and only the minute refused.
+    return REJECTED.includes(status) ? 'Groq rejected this key or model.' : `Could not read the budget (HTTP ${status}).`;
+  }
+
   function usageOf(provider, json) {
     if (provider === 'gemini') {
       const u = json.usageMetadata || {};
@@ -345,7 +363,7 @@ JSON fields:
   }
 
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { TILES, PROMPT, REJECTED, CALL_TIMEOUT_MS, parseFrame, isSingleChoice, tileOfButton, buildRequest, replyText, parseVerdict, parseLimit, matchNotes, decide, cropRect, sharpness };
+    module.exports = { TILES, PROMPT, REJECTED, CALL_TIMEOUT_MS, parseFrame, isSingleChoice, tileOfButton, buildRequest, budgetRequest, budgetText, replyText, parseVerdict, parseLimit, matchNotes, decide, cropRect, sharpness };
     return;
   }
 
@@ -492,6 +510,8 @@ output{color:#fff}
         ${field('groq-key', 'Groq key', true)}
         ${field('gemini-key', 'Gemini key, optional backup', true)}
         <p>Get a key from <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Groq</a>. A key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a> takes over if Groq fails or hits its free limit, but Google’s free tier can use your photos to improve its products. Keys stay on this phone and only go to their own company.</p>
+        <button class="btn budget" type="button">Check free budget</button>
+        <p class="budgetOut" role="status"></p>
         <details>
           <summary>Models</summary>
           ${field('groq-model', 'Groq model')}
@@ -505,7 +525,7 @@ output{color:#fff}
         <button class="btn primary test" type="button">Test camera and AI</button>
         <img class="shot" alt="Last photo sent to the AI" hidden>
         <pre class="result"></pre>
-        <p>Point at any quiz on a screen. Each photo goes to the AI company you picked, so keep people out of the frame.</p>
+        <p>Point at any quiz on a screen. Each photo goes to the AI company you picked, so keep people out of the frame. Each test uses one photo of the free budget.</p>
       </section>
       <section>
         <h2>Green box at <output class="thresholdOut"></output> confidence or more</h2>
@@ -1116,6 +1136,26 @@ output{color:#fff}
       logEntries = [];
       store.set('log', '[]');
       showLogCount();
+    });
+    $('.budget').addEventListener('click', async () => {
+      const out = $('.budgetOut');
+      const groq = providerOrder().find((p) => p.name === 'groq');
+      if (!groq) {
+        out.textContent = 'Add a Groq key first.';
+        return;
+      }
+      out.textContent = 'Checking…';
+      const request = budgetRequest(groq.model, groq.key);
+      const abort = new AbortController();
+      const timer = setTimeout(() => abort.abort(), 15000);
+      try {
+        const response = await fetch(request.url, { method: 'POST', headers: request.headers, body: JSON.stringify(request.body), signal: abort.signal });
+        out.textContent = budgetText(response.status, await response.text());
+      } catch (e) {
+        out.textContent = 'Could not reach Groq.';
+      } finally {
+        clearTimeout(timer);
+      }
     });
     $('.test').addEventListener('click', async () => {
       resultEl.textContent = 'Reading…';
